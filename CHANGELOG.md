@@ -2,6 +2,13 @@
 
 Los cambios se registran del más reciente al más antiguo.
 
+## [Punto 6]
+
+- Interfaz de consola con menú principal y submenús por entidad.
+- Listado, alta, modificación y baja de cada entidad (Enter conserva el valor actual al modificar).
+- Operaciones de stock (ingreso y venta) y actualización en línea de cotizaciones.
+- Menú de reportes: inventario valorizado, reposición, histórico de cotizaciones y comparación con Cúspide.
+
 ## [Punto 5]
 
 - Archivos de migración en `migrations/csv` con al menos 10 registros por entidad.
