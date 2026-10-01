@@ -1,0 +1,11 @@
+id,nombre,descripcion
+1,Oficial,Cotización del Banco Nación
+2,Blue,Mercado informal
+3,MEP,Dólar bolsa (operaciones con bonos)
+4,CCL,Contado con liquidación
+5,Mayorista,Mercado de cambios mayorista (BCRA)
+6,Cripto,Dólar vía stablecoins
+7,Tarjeta,Consumos con tarjeta en el exterior
+8,Ahorro,Compra minorista para atesoramiento
+9,Importación,Referencia para importadores de libros
+10,Exportación,Referencia para exportaciones
