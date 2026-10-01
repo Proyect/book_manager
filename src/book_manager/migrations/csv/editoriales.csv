@@ -1,0 +1,12 @@
+id,nombre,cuit,condicion_iva,direccion,email,telefono
+1,Editorial Planeta,30512345677,Responsable Inscripto,"Av. Independencia 1682, CABA",contacto1@editorial1.com.ar,011-4001-1037
+2,Penguin Random House,30524691341,Responsable Inscripto,"Humberto Primo 555, CABA",contacto2@editorial2.com.ar,011-4002-1074
+3,Siglo XXI Editores,30537037012,Responsable Inscripto,"Guatemala 4824, CABA",contacto3@editorial3.com.ar,011-4003-1111
+4,Eudeba,30549382688,Responsable Inscripto,"Av. Rivadavia 1573, CABA",contacto4@editorial4.com.ar,011-4004-1148
+5,Anagrama,30561728352,Responsable Inscripto,"Pedro de Valdivia 12, CABA",contacto5@editorial5.com.ar,011-4005-1185
+6,Salamandra,30574074025,Responsable Inscripto,"Av. Córdoba 1234, CABA",contacto6@editorial6.com.ar,011-4006-1222
+7,Sudamericana,30586419699,Responsable Inscripto,"Humberto Primo 555, CABA",contacto7@editorial7.com.ar,011-4007-1259
+8,Emecé,30598765363,Responsable Inscripto,"Independencia 1682, CABA",contacto8@editorial8.com.ar,011-4008-1296
+9,Alfaguara,30611111033,Exento,"Av. Leandro N. Alem 720, CABA",contacto9@editorial9.com.ar,011-4009-1333
+10,Ediciones B,30623456702,Responsable Inscripto,"Av. Belgrano 1300, CABA",contacto10@editorial10.com.ar,011-4010-1370
+11,Fondo de Cultura Económica,30635802371,Monotributista,"El Salvador 5665, CABA",contacto11@editorial11.com.ar,011-4011-1407
