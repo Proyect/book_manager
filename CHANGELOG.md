@@ -2,6 +2,12 @@
 
 Los cambios se registran del más reciente al más antiguo.
 
+## [Punto 7]
+
+- `main.py` arma repositorios y servicios e inicia la consola.
+- Parámetro `import_default_data` para reimportar los datos de `migrations/csv` (se importan igual si no hay datos).
+- `.gitignore` para excluir la carpeta de datos de trabajo y los `__pycache__`.
+
 ## [Punto 6]
 
 - Interfaz de consola con menú principal y submenús por entidad.
