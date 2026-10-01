@@ -2,6 +2,16 @@
 
 Los cambios se registran del más reciente al más antiguo.
 
+## [Ejercicio 4]
+
+- Servicio genérico `ServicioCRUD` con alta, lectura, modificación y baja validadas.
+- Reglas de negocio: nombres, CUIT, códigos e ISBN únicos; no se borran registros con dependencias.
+- Baja de libros en cascada (precios y stock) y alta de stock en cero al crear un libro.
+- `ServicioStock` con ingreso de mercadería, ventas y libros para reponer.
+- `ServicioCotizacion` con histórico, última cotización y actualización en línea desde dolarapi.com.
+- `ServicioCompetencia` que busca el precio de cada libro en Cúspide (requests + BeautifulSoup).
+- `ServicioReportes`: inventario valorizado en pesos, reposición y comparación con la competencia.
+
 ## [Ejercicio 3]
 
 - Interfaces `IRepositorio`, `IRepositorioStock` e `IRepositorioCotizacionDolar` tomadas de la plantilla.
