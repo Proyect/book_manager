@@ -2,6 +2,15 @@
 
 Los cambios se registran del más reciente al más antiguo.
 
+## [Ejercicio 3]
+
+- Interfaces `IRepositorio`, `IRepositorioStock` e `IRepositorioCotizacionDolar` tomadas de la plantilla.
+- Clase `ArchivoCSV` para leer y escribir los datos en archivos CSV (carpeta `data`).
+- Repositorio genérico `RepositorioCSV` con CRUD completo e IDs autoincrementales.
+- Repositorios de `Genero`, `Editorial`, `Moneda`, `TipoCotizacion`, `Libro` y `Precio`, resolviendo las relaciones por ID.
+- Repositorios de `Stock` (clave: libro) y `CotizacionDolar` (clave: tipo y fecha).
+- Búsquedas auxiliares: moneda por código, tipo por nombre, libro por ISBN y precios por libro.
+
 ## [Ejercicio 2]
 
 - Creación de la clase abstracta `EntidadBase` con el `id` común a las entidades.
