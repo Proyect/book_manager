@@ -2,6 +2,12 @@
 
 Los cambios se registran del más reciente al más antiguo.
 
+## [Punto 5]
+
+- Archivos de migración en `migrations/csv` con al menos 10 registros por entidad.
+- Función `importar_datos` que valida cada registro con las entidades y lo copia a los datos de trabajo.
+- Función `hay_datos` para saber si el sistema ya tiene datos cargados.
+
 ## [Ejercicio 4]
 
 - Servicio genérico `ServicioCRUD` con alta, lectura, modificación y baja validadas.
