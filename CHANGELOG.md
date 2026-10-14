@@ -4,6 +4,13 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 2
 
+### [Ejercicio 4]
+
+- Modelos ORM (tablas) `generos`, `editoriales`, `monedas`, `tipos_cotizacion`, `libros`, `precios`, `stock` y `cotizaciones_dolar`.
+- Tipos de datos, claves primarias, valores únicos (ISBN, CUIT, código de moneda, nombres) y restricciones CHECK.
+- Relaciones con claves foráneas: libro con editorial y género; precio con libro y moneda; stock 1 a 1 con libro; cotización con su tipo.
+- Borrado en cascada de precios y stock al eliminar un libro.
+
 ### [Ejercicio 3]
 
 - Context manager `ConexionDB.transaccion()` que abre la sesión, hace commit al terminar, rollback ante errores y siempre cierra la sesión.
