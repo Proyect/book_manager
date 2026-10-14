@@ -1,5 +1,6 @@
 """Punto de entrada del sistema Book Manager."""
 
+from book_manager.database.connection import ConexionDB
 from book_manager.preload_data.preload_data import hay_datos, importar_datos
 from book_manager.repositories.repositories import (
     RepositorioCotizacionDolar, RepositorioEditorial, RepositorioGenero,
@@ -12,16 +13,16 @@ from book_manager.services.services import (
 from book_manager.ui.console import Consola, Servicios
 
 
-def crear_servicios() -> Servicios:
+def crear_servicios(conexion: ConexionDB) -> Servicios:
     """Construye repositorios y servicios con sus dependencias."""
-    repo_genero = RepositorioGenero()
-    repo_editorial = RepositorioEditorial()
-    repo_moneda = RepositorioMoneda()
-    repo_tipo = RepositorioTipoCotizacion()
-    repo_libro = RepositorioLibro(repo_editorial, repo_genero)
-    repo_precio = RepositorioPrecio(repo_libro, repo_moneda)
-    repo_stock = RepositorioStock(repo_libro)
-    repo_cotizacion = RepositorioCotizacionDolar(repo_tipo)
+    repo_genero = RepositorioGenero(conexion)
+    repo_editorial = RepositorioEditorial(conexion)
+    repo_moneda = RepositorioMoneda(conexion)
+    repo_tipo = RepositorioTipoCotizacion(conexion)
+    repo_libro = RepositorioLibro(conexion)
+    repo_precio = RepositorioPrecio(conexion)
+    repo_stock = RepositorioStock(conexion)
+    repo_cotizacion = RepositorioCotizacionDolar(conexion)
 
     libro = ServicioLibro(repo_libro, repo_precio, repo_stock)
     precio = ServicioPrecio(repo_precio)
@@ -39,19 +40,25 @@ def crear_servicios() -> Servicios:
 
 
 def main(import_default_data: bool = True) -> None:
-    """Inicia la aplicación de consola.
+    """Inicia la aplicación de consola sobre la base de datos.
 
     Args:
-        import_default_data (bool): Si es True, reemplaza los datos de
-            trabajo por los de migrations/csv. Si no hay datos cargados se
-            importan igualmente.
+        import_default_data (bool): Si es True, recrea las tablas y carga
+            los datos de migrations/csv. Si la base está vacía se cargan
+            igualmente.
     """
-    if import_default_data or not hay_datos():
-        resumen = importar_datos()
+    conexion = ConexionDB()
+    conexion.crear_tablas()
+    print(f"Base de datos: {conexion.url}")
+    if import_default_data or not hay_datos(conexion):
+        resumen = importar_datos(conexion)
         print("Datos iniciales importados:")
-        for archivo, cantidad in resumen.items():
-            print(f"  {archivo}: {cantidad} registros")
-    Consola(crear_servicios()).ejecutar()
+        for tabla, cantidad in resumen.items():
+            print(f"  {tabla}: {cantidad} registros")
+    try:
+        Consola(crear_servicios(conexion)).ejecutar()
+    finally:
+        conexion.cerrar()
 
 
 if __name__ == "__main__":

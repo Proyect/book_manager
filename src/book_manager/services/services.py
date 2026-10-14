@@ -19,7 +19,7 @@ from book_manager.entities.entities import (
     CotizacionDolar, Editorial, EntidadBase, Genero, Libro, Moneda, Precio,
     Stock, TipoCotizacion)
 from book_manager.repositories.repositories import (
-    RepositorioCotizacionDolar, RepositorioCSV, RepositorioEditorial,
+    RepositorioCotizacionDolar, RepositorioDB, RepositorioEditorial,
     RepositorioGenero, RepositorioLibro, RepositorioMoneda,
     RepositorioPrecio, RepositorioStock, RepositorioTipoCotizacion)
 
@@ -39,7 +39,7 @@ CASAS_DOLAR_API = {"oficial": "Oficial", "blue": "Blue", "bolsa": "MEP",
 class ServicioCRUD(Generic[T]):
     """Lógica común de alta, lectura, modificación y baja de entidades."""
 
-    def __init__(self, repositorio: RepositorioCSV[T]) -> None:
+    def __init__(self, repositorio: RepositorioDB[T]) -> None:
         """Recibe el repositorio de la entidad."""
         self._repo = repositorio
 

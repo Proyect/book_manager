@@ -4,6 +4,14 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 2
 
+### [Ejercicio 6]
+
+- Repositorio genérico `RepositorioDB` con CRUD completo sobre la base usando el context manager de transacciones.
+- Repositorios de cada entidad reescritos para leer y escribir en las tablas, convirtiendo entre modelos ORM y entidades del dominio.
+- Búsquedas con consultas SQLAlchemy: moneda por código, tipo por nombre, libro por ISBN, precios por libro, histórico de cotizaciones.
+- `main.py` crea la conexión, las tablas y la carga inicial si la base está vacía.
+- Los servicios dependen de `RepositorioDB` en lugar de `RepositorioCSV`.
+
 ### [Ejercicio 5]
 
 - Función `migrar_datos(carpeta_csvs, carpeta_sqls)` en `migrations/migrations.py` que lee los CSV del TP1, convierte cada valor al tipo de su columna y puebla la base en una única transacción.
