@@ -4,6 +4,13 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 2
 
+### [Ejercicio 8]
+
+- Opción de menú **Obtener las cotizaciones por API**.
+- Opción **Lista de precios bimonetaria**: precio de cada libro en pesos y en dólares según el tipo de dólar elegido.
+- Opción **Exportar precios a CSV**: un archivo con el precio en pesos y en dólares para cada tipo de cotización (`data/exportaciones`).
+- La consola informa los errores de base de datos sin interrumpir el programa.
+
 ### [Ejercicio 7]
 
 - Archivo `.env` con `API_URL` de dolarapi.com, leído con python-dotenv.

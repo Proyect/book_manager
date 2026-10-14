@@ -6,6 +6,7 @@ persistencia en los repositorios.
 """
 
 import copy
+import csv
 import datetime
 import os
 import re
@@ -33,12 +34,19 @@ load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 URL_DOLAR_API = os.getenv("API_URL", "https://dolarapi.com/v1/dolares")
 URL_CUSPIDE = "https://cuspide.com/"
 TIMEOUT_SEGUNDOS = 10
+DIRECTORIO_EXPORTACIONES = (Path(__file__).resolve().parents[1] / "data"
+                            / "exportaciones")
 ENCABEZADOS_HTTP = {"User-Agent": "Mozilla/5.0 (BookManager UGR)"}
 
 # Relación entre el campo "casa" de dolarapi.com y el nombre del tipo.
 CASAS_DOLAR_API = {"oficial": "Oficial", "blue": "Blue", "bolsa": "MEP",
                    "contadoconliqui": "CCL", "mayorista": "Mayorista",
                    "cripto": "Cripto", "tarjeta": "Tarjeta"}
+
+
+def _vacio_si_none(valor: Optional[float]) -> Any:
+    """Devuelve '' en lugar de None (para escribir en el CSV)."""
+    return "" if valor is None else valor
 
 
 class ServicioCRUD(Generic[T]):
@@ -463,6 +471,22 @@ class ComparacionPrecio:
                       - 1) * 100, 2)
 
 
+@dataclass
+class PrecioBimonetario:
+    """Fila de la lista de precios en pesos y en otra moneda."""
+
+    libro: Libro
+    precio_ars: Optional[float]
+    cotizacion: Optional[CotizacionDolar]
+
+    @property
+    def precio_usd(self) -> Optional[float]:
+        """Precio expresado en dólares según la cotización (venta)."""
+        if self.precio_ars is None or self.cotizacion is None:
+            return None
+        return round(self.precio_ars / self.cotizacion.venta, 2)
+
+
 class ServicioCompetencia:
     """Consulta de precios en la web de la competencia (Cúspide)."""
 
@@ -575,6 +599,65 @@ class ServicioReportes:
             lineas.append(LineaInventario(
                 libro, precio, self.precio_en_pesos(libro, tipo), cantidad))
         return lineas
+
+    def lista_bimonetaria(self, tipo: TipoCotizacion
+                          ) -> List[PrecioBimonetario]:
+        """Precio vigente de cada libro en pesos y en dólares.
+
+        Args:
+            tipo (TipoCotizacion): Tipo de dólar usado para convertir.
+
+        Returns:
+            List[PrecioBimonetario]: Una fila por libro.
+        """
+        cotizacion = self._cotizaciones.ultima(tipo.id)
+        return [PrecioBimonetario(libro, self.precio_en_pesos(libro, tipo),
+                                  cotizacion)
+                for libro in self._libros.listar()]
+
+    def exportar_precios_csv(self, ruta: Optional[Path] = None) -> Path:
+        """Exporta los precios en pesos y en cada tipo de dólar a un CSV.
+
+        Por cada tipo de cotización con valores registrados se agregan dos
+        columnas: el precio en pesos y en dólares según ese tipo.
+
+        Args:
+            ruta (Optional[Path]): Archivo destino. Por defecto
+                data/exportaciones/precios_AAAA-MM-DD.csv.
+
+        Returns:
+            Path: Ruta del archivo generado.
+        """
+        if ruta is None:
+            ruta = (DIRECTORIO_EXPORTACIONES
+                    / f"precios_{datetime.date.today().isoformat()}.csv")
+        tipos = self._tipos_con_cotizacion()
+        listas = {t.nombre: self.lista_bimonetaria(t) for t in tipos}
+        encabezado = ["libro_id", "isbn", "titulo", "moneda_origen",
+                      "precio_origen"]
+        for tipo in tipos:
+            encabezado += [f"ARS_{tipo.nombre}", f"USD_{tipo.nombre}"]
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        with open(ruta, "w", newline="", encoding="utf-8") as archivo:
+            escritor = csv.writer(archivo)
+            escritor.writerow(encabezado)
+            for i, libro in enumerate(self._libros.listar()):
+                precio = self._precios.precio_vigente(libro.id)
+                fila: List[Any] = [
+                    libro.id, libro.isbn, libro.titulo,
+                    precio.moneda.codigo if precio else "",
+                    precio.valor if precio else ""]
+                for tipo in tipos:
+                    item = listas[tipo.nombre][i]
+                    fila += [_vacio_si_none(item.precio_ars),
+                             _vacio_si_none(item.precio_usd)]
+                escritor.writerow(fila)
+        return ruta
+
+    def _tipos_con_cotizacion(self) -> List[TipoCotizacion]:
+        """Tipos de cotización que tienen al menos un valor registrado."""
+        tipos = {c.tipo_id: c.tipo for c in self._cotizaciones.listar()}
+        return [tipos[i] for i in sorted(tipos)]
 
     def libros_para_reponer(self) -> List[Stock]:
         """Libros con stock por debajo del mínimo."""
