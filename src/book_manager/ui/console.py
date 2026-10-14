@@ -8,7 +8,7 @@ from book_manager.entities.entities import (
     CotizacionDolar, Editorial, Genero, Libro, Moneda, Precio, Stock,
     TipoCotizacion)
 from book_manager.services.services import (
-    ServicioCotizacion, ServicioCRUD, ServicioEditorial, ServicioGenero,
+    ServicioCotizacionDolar, ServicioCRUD, ServicioEditorial, ServicioGenero,
     ServicioLibro, ServicioMoneda, ServicioPrecio, ServicioReportes,
     ServicioStock, ServicioTipoCotizacion)
 
@@ -26,7 +26,7 @@ class Servicios:
     libro: ServicioLibro
     precio: ServicioPrecio
     stock: ServicioStock
-    cotizacion: ServicioCotizacion
+    cotizacion: ServicioCotizacionDolar
     reportes: ServicioReportes
 
 
@@ -371,13 +371,13 @@ class Consola:
                 print("No existe esa cotización.")
 
         def en_linea() -> None:
-            for cotizacion in self._s.cotizacion.actualizar_desde_api():
+            for cotizacion in self._s.cotizacion.obtener_cotizaciones():
                 print(cotizacion)
 
         menu("COTIZACIONES DEL DÓLAR", {
             "Listar": self.listar_cotizaciones, "Alta": alta,
             "Modificar": modificar, "Baja": baja,
-            "Actualizar en línea (dolarapi.com)": en_linea})
+            "Obtener cotizaciones por API": en_linea})
 
     # ----- Reportes -----
 

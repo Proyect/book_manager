@@ -4,6 +4,13 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 2
 
+### [Ejercicio 7]
+
+- Archivo `.env` con `API_URL` de dolarapi.com, leído con python-dotenv.
+- Servicio `ServicioCotizacionDolar` con la función `obtener_cotizaciones` que busca, descarga y registra (o actualiza) las cotizaciones en la base.
+- Si la API informa un tipo de dólar que no existe, se crea automáticamente.
+- Se usa la fecha de actualización informada por la API.
+
 ### [Ejercicio 6]
 
 - Repositorio genérico `RepositorioDB` con CRUD completo sobre la base usando el context manager de transacciones.
