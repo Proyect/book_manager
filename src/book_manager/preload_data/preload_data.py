@@ -1,65 +1,36 @@
-"""Carga inicial de datos desde los archivos CSV de migrations/csv.
+"""Carga inicial de datos en la base de datos.
 
-Los archivos de migración se leen con los mismos repositorios del sistema,
-de modo que cada registro se valida al construir su entidad. Si todos son
-válidos, se escriben como datos de trabajo en la carpeta ``data``.
+Reutiliza la migración de ``migrations/migrations.py`` para poblar la base
+con los datos del TP1 (archivos de ``migrations/csv``).
 """
 
-from pathlib import Path
 from typing import Dict
 
-from book_manager.repositories.repositories import (
-    DIRECTORIO_DATOS, ArchivoCSV, RepositorioCotizacionDolar,
-    RepositorioEditorial, RepositorioGenero, RepositorioLibro,
-    RepositorioMoneda, RepositorioPrecio, RepositorioStock,
-    RepositorioTipoCotizacion)
+from sqlalchemy import func, select
 
-DIRECTORIO_MIGRACIONES = (Path(__file__).resolve().parent.parent
-                          / "migrations" / "csv")
+from book_manager.database.connection import ConexionDB
+from book_manager.migrations.migrations import migrar_datos
+from book_manager.models.models import LibroModel
 
 
-def importar_datos(origen: Path = DIRECTORIO_MIGRACIONES,
-                   destino: Path = DIRECTORIO_DATOS) -> Dict[str, int]:
-    """Valida los CSV de migración y los copia como datos del sistema.
+def importar_datos(conexion: ConexionDB) -> Dict[str, int]:
+    """Recrea las tablas y carga los datos iniciales.
 
     Args:
-        origen (Path): Carpeta con los CSV de migración.
-        destino (Path): Carpeta de datos de trabajo del sistema.
+        conexion (ConexionDB): Conexión a la base de datos.
 
     Returns:
-        Dict[str, int]: Cantidad de registros importados por archivo.
-
-    Raises:
-        ValueError: Si algún registro no es válido.
+        Dict[str, int]: Cantidad de registros cargados por tabla.
     """
-    generos = RepositorioGenero(origen)
-    editoriales = RepositorioEditorial(origen)
-    monedas = RepositorioMoneda(origen)
-    tipos = RepositorioTipoCotizacion(origen)
-    libros = RepositorioLibro(editoriales, generos, origen)
-    precios = RepositorioPrecio(libros, monedas, origen)
-    stock = RepositorioStock(libros, origen)
-    cotizaciones = RepositorioCotizacionDolar(tipos, origen)
-
-    repositorios = {
-        RepositorioGenero.NOMBRE_ARCHIVO: (generos, generos.CAMPOS),
-        RepositorioEditorial.NOMBRE_ARCHIVO: (editoriales,
-                                              editoriales.CAMPOS),
-        RepositorioMoneda.NOMBRE_ARCHIVO: (monedas, monedas.CAMPOS),
-        RepositorioTipoCotizacion.NOMBRE_ARCHIVO: (tipos, tipos.CAMPOS),
-        RepositorioLibro.NOMBRE_ARCHIVO: (libros, libros.CAMPOS),
-        RepositorioPrecio.NOMBRE_ARCHIVO: (precios, precios.CAMPOS),
-        "stock.csv": (stock, stock.CAMPOS),
-        "cotizaciones_dolar.csv": (cotizaciones, cotizaciones.CAMPOS),
-    }
-    resumen = {}
-    for nombre, (repositorio, campos) in repositorios.items():
-        registros = [r.to_dict() for r in repositorio.leer_todos()]
-        ArchivoCSV(nombre, campos, destino).escribir(registros)
-        resumen[nombre] = len(registros)
-    return resumen
+    conexion.eliminar_tablas()
+    conexion.crear_tablas()
+    return migrar_datos(conexion=conexion)
 
 
-def hay_datos(destino: Path = DIRECTORIO_DATOS) -> bool:
-    """Indica si ya existen datos de trabajo cargados."""
-    return (destino / RepositorioLibro.NOMBRE_ARCHIVO).exists()
+def hay_datos(conexion: ConexionDB) -> bool:
+    """Indica si la base ya tiene libros cargados."""
+    if not conexion.existe_tabla(LibroModel.__tablename__):
+        return False
+    with conexion.transaccion() as sesion:
+        cantidad = sesion.scalar(select(func.count()).select_from(LibroModel))
+    return bool(cantidad)

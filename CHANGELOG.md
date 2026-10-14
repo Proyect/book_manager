@@ -4,6 +4,12 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 2
 
+### [Ejercicio 5]
+
+- Función `migrar_datos(carpeta_csvs, carpeta_sqls)` en `migrations/migrations.py` que lee los CSV del TP1, convierte cada valor al tipo de su columna y puebla la base en una única transacción.
+- Generación de los scripts `.sql` en `migrations/sql`: esquema (`00_esquema.sql`) y una sentencia INSERT por registro para cada tabla.
+- `preload_data` reutiliza la migración para la carga inicial y verifica si la base ya tiene datos.
+
 ### [Ejercicio 4]
 
 - Modelos ORM (tablas) `generos`, `editoriales`, `monedas`, `tipos_cotizacion`, `libros`, `precios`, `stock` y `cotizaciones_dolar`.
