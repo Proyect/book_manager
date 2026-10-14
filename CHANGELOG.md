@@ -4,6 +4,12 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 2
 
+### [Ejercicio 2]
+
+- Clase `Base` (DeclarativeBase) de la que heredan los modelos.
+- Clase `ConexionDB` que crea el engine de SQLAlchemy con la URL del `.env` (`DATABASE_URL`) o SQLite local por defecto.
+- Activación de claves foráneas en SQLite, prueba de conexión, creación y borrado de tablas.
+
 ### [Ejercicio 1]
 
 - Creación de la rama `Sprint_2` a partir de `Sprint_1`.
