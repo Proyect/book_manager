@@ -6,8 +6,9 @@ carpeta ``data`` del paquete.
 """
 
 import os
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, event, inspect, text
@@ -65,6 +66,27 @@ class ConexionDB:
     def nueva_sesion(self) -> Session:
         """Devuelve una sesión nueva (quien la usa debe cerrarla)."""
         return self._fabrica()
+
+    @contextmanager
+    def transaccion(self) -> Iterator[Session]:
+        """Context manager que abre una sesión y maneja la transacción.
+
+        Al salir del bloque sin errores confirma los cambios (commit); si
+        ocurre una excepción los deshace (rollback) y la vuelve a lanzar.
+        En ambos casos cierra la sesión.
+
+        Yields:
+            Session: Sesión de SQLAlchemy lista para usar.
+        """
+        sesion = self._fabrica()
+        try:
+            yield sesion
+            sesion.commit()
+        except Exception:
+            sesion.rollback()
+            raise
+        finally:
+            sesion.close()
 
     def probar_conexion(self) -> bool:
         """Ejecuta una consulta simple para verificar la conexión."""

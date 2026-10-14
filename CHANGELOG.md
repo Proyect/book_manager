@@ -4,6 +4,10 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 2
 
+### [Ejercicio 3]
+
+- Context manager `ConexionDB.transaccion()` que abre la sesión, hace commit al terminar, rollback ante errores y siempre cierra la sesión.
+
 ### [Ejercicio 2]
 
 - Clase `Base` (DeclarativeBase) de la que heredan los modelos.
