@@ -4,8 +4,6 @@ import datetime
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Sequence, TypeVar
 
-from sqlalchemy.exc import SQLAlchemyError
-
 from book_manager.entities.entities import (
     CotizacionDolar, Editorial, Genero, Libro, Moneda, Precio, Stock,
     TipoCotizacion)
@@ -116,8 +114,6 @@ def menu(titulo: str, opciones: Dict[str, Callable[[], None]]) -> None:
             opciones[claves[int(eleccion) - 1]]()
         except (ValueError, TypeError, ConnectionError) as error:
             print(f"Error: {error}")
-        except SQLAlchemyError as error:
-            print(f"Error de base de datos: {error.__class__.__name__}")
 
 
 class Consola:
@@ -139,10 +135,6 @@ class Consola:
             "Stock": self.menu_stock,
             "Cotizaciones del dólar": self.menu_cotizaciones,
             "Reportes": self.menu_reportes,
-            "Obtener las cotizaciones por API": self.obtener_cotizaciones,
-            "Lista de precios bimonetaria": self.lista_bimonetaria,
-            "Exportar precios a CSV (todas las monedas)":
-                self.exportar_precios,
         })
         print("¡Hasta luego!")
 
@@ -386,40 +378,6 @@ class Consola:
             "Listar": self.listar_cotizaciones, "Alta": alta,
             "Modificar": modificar, "Baja": baja,
             "Obtener cotizaciones por API": en_linea})
-
-    # ----- Cotizaciones por API y precios bimonetarios -----
-
-    def obtener_cotizaciones(self) -> None:
-        """Descarga las cotizaciones de la API y las guarda en la base."""
-        print("Consultando la API de cotizaciones...")
-        cotizaciones = self._s.cotizacion.obtener_cotizaciones()
-        imprimir_tabla(
-            ["Tipo", "Fecha", "Compra", "Venta"],
-            [(c.tipo, c.fecha.isoformat(), f"{c.compra:,.2f}",
-              f"{c.venta:,.2f}") for c in cotizaciones])
-
-    def lista_bimonetaria(self) -> None:
-        """Precios de los libros en pesos y en dólares del tipo elegido."""
-        tipo = elegir("Moneda (tipo de dólar)",
-                      self._s.tipo_cotizacion.listar())
-        filas = self._s.reportes.lista_bimonetaria(tipo)
-        cotizacion = filas[0].cotizacion if filas else None
-        if cotizacion is None:
-            print(f"No hay cotizaciones del dólar {tipo}. Obténgalas por "
-                  "API o cárguelas manualmente.")
-            return
-        print(f"Cotización usada: {cotizacion}")
-        imprimir_tabla(
-            ["ID", "Título", "Precio ARS", f"Precio USD ({tipo})"],
-            [(f.libro.id, f.libro.titulo,
-              "-" if f.precio_ars is None else f"$ {f.precio_ars:,.2f}",
-              "-" if f.precio_usd is None else f"US$ {f.precio_usd:,.2f}")
-             for f in filas])
-
-    def exportar_precios(self) -> None:
-        """Exporta la lista de precios en todas las monedas a CSV."""
-        ruta = self._s.reportes.exportar_precios_csv()
-        print(f"Precios exportados en: {ruta}")
 
     # ----- Reportes -----
 

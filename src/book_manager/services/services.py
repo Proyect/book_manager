@@ -7,13 +7,16 @@ persistencia en los repositorios.
 
 import copy
 import datetime
+import os
 import re
 import unicodedata
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Generic, List, Optional, TypeVar
 
 import requests
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
 
 from book_manager.entities.entities import (
     CotizacionDolar, Editorial, EntidadBase, Genero, Libro, Moneda, Precio,
@@ -25,7 +28,9 @@ from book_manager.repositories.repositories import (
 
 T = TypeVar('T', bound=EntidadBase)
 
-URL_DOLAR_API = "https://dolarapi.com/v1/dolares"
+load_dotenv(Path(__file__).resolve().parents[3] / ".env")
+
+URL_DOLAR_API = os.getenv("API_URL", "https://dolarapi.com/v1/dolares")
 URL_CUSPIDE = "https://cuspide.com/"
 TIMEOUT_SEGUNDOS = 10
 ENCABEZADOS_HTTP = {"User-Agent": "Mozilla/5.0 (BookManager UGR)"}
@@ -312,14 +317,16 @@ class ServicioStock:
         return [s for s in self.listar() if s.requiere_reposicion]
 
 
-class ServicioCotizacion:
-    """Lógica de cotizaciones del dólar (manuales y en línea)."""
+class ServicioCotizacionDolar:
+    """Lógica de cotizaciones del dólar (manuales y obtenidas por API)."""
 
     def __init__(self, repo: RepositorioCotizacionDolar,
-                 repo_tipo: RepositorioTipoCotizacion) -> None:
-        """Recibe los repositorios de cotizaciones y de tipos."""
+                 repo_tipo: RepositorioTipoCotizacion,
+                 url_api: str = URL_DOLAR_API) -> None:
+        """Recibe los repositorios y la URL de la API (tomada del .env)."""
         self._repo = repo
         self._repo_tipo = repo_tipo
+        self._url_api = url_api
 
     def listar(self) -> List[CotizacionDolar]:
         """Devuelve todas las cotizaciones registradas."""
@@ -363,30 +370,64 @@ class ServicioCotizacion:
             return self._repo.actualizar(cotizacion)
         return self._repo.crear(cotizacion)
 
-    def actualizar_desde_api(self) -> List[CotizacionDolar]:
-        """Consulta dolarapi.com y registra las cotizaciones del día.
+    def _descargar(self) -> List[Dict[str, Any]]:
+        """Descarga las cotizaciones desde la API configurada en el .env.
 
         Raises:
             ConnectionError: Si no se pudo obtener la información.
         """
         try:
-            respuesta = requests.get(URL_DOLAR_API, timeout=TIMEOUT_SEGUNDOS,
+            respuesta = requests.get(self._url_api, timeout=TIMEOUT_SEGUNDOS,
                                      headers=ENCABEZADOS_HTTP)
             respuesta.raise_for_status()
             datos = respuesta.json()
         except (requests.RequestException, ValueError) as error:
             raise ConnectionError(
                 f"No se pudo consultar la cotización: {error}") from error
+        if not isinstance(datos, list):
+            raise ConnectionError("La API devolvió un formato inesperado.")
+        return datos
+
+    def _tipo_para(self, item: Dict[str, Any]) -> TipoCotizacion:
+        """Devuelve el tipo de cotización del item; si no existe lo crea."""
+        casa = item.get("casa", "")
+        nombre = CASAS_DOLAR_API.get(casa) or item.get("nombre") or casa
+        tipo = self._repo_tipo.leer_por_nombre(nombre)
+        if tipo is None:
+            tipo = self._repo_tipo.crear(TipoCotizacion(
+                nombre, f"Dólar {item.get('nombre', nombre)} (dolarapi.com)"))
+        return tipo
+
+    @staticmethod
+    def _fecha_de(item: Dict[str, Any]) -> datetime.date:
+        """Fecha de actualización informada por la API (o la de hoy)."""
+        try:
+            return datetime.date.fromisoformat(
+                item["fechaActualizacion"][:10])
+        except (KeyError, TypeError, ValueError):
+            return datetime.date.today()
+
+    def obtener_cotizaciones(self) -> List[CotizacionDolar]:
+        """Busca, descarga y registra en la base las cotizaciones del día.
+
+        Consulta la API definida en API_URL (.env). Por cada tipo de dólar
+        informado crea el tipo si no existe y guarda (o actualiza) la
+        cotización de la fecha informada.
+
+        Returns:
+            List[CotizacionDolar]: Cotizaciones registradas.
+
+        Raises:
+            ConnectionError: Si no se pudo consultar la API.
+        """
         registradas = []
-        hoy = datetime.date.today()
-        for item in datos:
-            nombre = CASAS_DOLAR_API.get(item.get("casa", ""))
-            tipo = self._repo_tipo.leer_por_nombre(nombre) if nombre else None
-            if tipo is None or not item.get("venta"):
+        for item in self._descargar():
+            venta = item.get("venta")
+            if not venta:
                 continue
-            compra = item.get("compra") or item["venta"]
-            registradas.append(self.registrar(
-                CotizacionDolar(tipo, hoy, compra, item["venta"])))
+            compra = item.get("compra") or venta
+            registradas.append(self.registrar(CotizacionDolar(
+                self._tipo_para(item), self._fecha_de(item), compra, venta)))
         return registradas
 
 
@@ -496,7 +537,7 @@ class ServicioReportes:
     def __init__(self, servicio_libro: ServicioLibro,
                  servicio_precio: ServicioPrecio,
                  servicio_stock: ServicioStock,
-                 servicio_cotizacion: ServicioCotizacion,
+                 servicio_cotizacion: ServicioCotizacionDolar,
                  servicio_competencia: ServicioCompetencia) -> None:
         """Recibe los servicios que se combinan en los reportes."""
         self._libros = servicio_libro

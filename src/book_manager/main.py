@@ -7,7 +7,7 @@ from book_manager.repositories.repositories import (
     RepositorioLibro, RepositorioMoneda, RepositorioPrecio, RepositorioStock,
     RepositorioTipoCotizacion)
 from book_manager.services.services import (
-    ServicioCompetencia, ServicioCotizacion, ServicioEditorial,
+    ServicioCompetencia, ServicioCotizacionDolar, ServicioEditorial,
     ServicioGenero, ServicioLibro, ServicioMoneda, ServicioPrecio,
     ServicioReportes, ServicioStock, ServicioTipoCotizacion)
 from book_manager.ui.console import Consola, Servicios
@@ -27,7 +27,7 @@ def crear_servicios(conexion: ConexionDB) -> Servicios:
     libro = ServicioLibro(repo_libro, repo_precio, repo_stock)
     precio = ServicioPrecio(repo_precio)
     stock = ServicioStock(repo_stock, repo_libro)
-    cotizacion = ServicioCotizacion(repo_cotizacion, repo_tipo)
+    cotizacion = ServicioCotizacionDolar(repo_cotizacion, repo_tipo)
     reportes = ServicioReportes(libro, precio, stock, cotizacion,
                                 ServicioCompetencia())
     return Servicios(
