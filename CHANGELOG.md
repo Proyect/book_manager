@@ -4,6 +4,25 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 2
 
+[Ejercicio 08]
+- Opción "Obtener cotizaciones por API" en el menú de cotizaciones del dólar:
+  llama a `obtener_cotizaciones()` y muestra las cotizaciones registradas.
+- Opción "Lista de precios bimonetaria" en el menú de reportes: precio de
+  cada libro en pesos y en la moneda seleccionada, con el tipo de cotización
+  elegido para convertir dólares.
+- Opción "Exportar precios a CSV" en el menú de reportes: un archivo con una
+  fila por libro y una columna por cada moneda registrada (por defecto en
+  `data/exports/precios.csv`, ruta configurable).
+- `ServicioReportes.precio_en_moneda`: usa el precio registrado en la moneda
+  o, para USD, convierte el precio en pesos con la última cotización; sin
+  dato para monedas sin cotización.
+- `ServicioReportes.lista_bimonetaria` y `exportar_precios_csv` (módulo
+  `csv`), y `ServicioPrecio.precio_vigente_en`.
+- Consola con `ServicioCotizacionDolar`; se eliminan los alias temporales del
+  Ejercicio 07; función `formatear_importe` y captura de `OSError` en el menú.
+- Celda de prueba con entrada simulada: lista en USD y en EUR, exportación y
+  lectura del CSV, cotizaciones por API y verificación de los alias.
+
 [Ejercicio 07]
 - Función `cargar_url_api()` en `services.py`: lee `API_URL` del archivo
   `.env` de la raíz del repositorio con `python-dotenv` (`dotenv_values`) y
@@ -26,15 +45,21 @@ Los cambios se registran del más reciente al más antiguo.
   actualización sin duplicados, rechazo atómico, API real y errores de red.
 
 [Ejercicio 06]
+- Todo el sistema persiste en PostgreSQL (Supabase): `ConexionDB()` sin URL
+  arma la conexión con `SQLALCHEMY_DATABASE_URL` y `SUPABASE_DB_PASSWORD` del
+  `.env` (contraseña insertada con `make_url`); sin credenciales usa una base
+  SQLite local.
+- La contraseña nunca se muestra: `url` y `repr` la ocultan, y los errores de
+  URL no la incluyen; `pool_pre_ping` para las conexiones del pooler.
 - Repositorios reescritos para persistir en la base de datos con SQL
   parametrizado: `RepositorioBaseSQL` (ejecución y conversión de errores de
   integridad en `ValueError`) y `RepositorioSQL[T]`, genérico con CRUD
   completo, que reemplaza a `ArchivoCSV` y `RepositorioCSV`.
 - Interfaces de la cátedra sin cambios; los repositorios conservan sus
-  nombres y sus búsquedas auxiliares (`leer_por_codigo`, `leer_por_nombre`,
-  `leer_por_isbn`, `leer_por_libro`).
-- Ids asignados por la base (`lastrowid`) en lugar de `max(id) + 1`; sin
-  caché en memoria.
+  nombres y sus búsquedas auxiliares (`leer_por_codigo`, `leer_por_nombre`
+  con `lower()`, `leer_por_isbn`, `leer_por_libro`).
+- Ids asignados por la base con `INSERT ... RETURNING id` (válido en
+  PostgreSQL y SQLite) en lugar de `max(id) + 1`; sin caché en memoria.
 - Transacciones compartidas en `ConexionDB`: una transacción abierta
   mientras otra está en curso se suma a la externa.
 - `ServicioLibro` hace el alta (libro y stock) y la baja en cascada (precios,
@@ -45,9 +70,10 @@ Los cambios se registran del más reciente al más antiguo.
 - `main.py`: una `ConexionDB` compartida por todos los repositorios; con
   `import_default_data=False` usa la base existente o la carga si está vacía;
   parámetro opcional `conexion_db` para las pruebas.
-- Celdas de prueba sobre bases temporales en `/tmp`: transacciones
-  compartidas, repositorios y prueba integral del sistema (carga, reportes,
-  alta y baja atómicas, persistencia y `main` con entrada simulada).
+- Celdas de prueba sobre bases SQLite temporales en `/tmp` (transacciones
+  compartidas, repositorios y prueba integral) y prueba del sistema sobre
+  Supabase (carga, alta y baja con secuencias ajustadas, restricciones y
+  reporte).
 
 [Ejercicio 05]
 - Migración de datos en `migrations/migrations.py`, con la configuración de
@@ -62,8 +88,10 @@ Los cambios se registran del más reciente al más antiguo.
 - Textos escapados con comillas simples duplicadas; archivos deterministas,
   sin fecha de generación.
 - `ejecutar_migraciones(conexion_db, carpeta_sqls)`: puebla la base ejecutando
-  los `.sql` en una sola transacción y devuelve los registros insertados por
-  tabla.
+  los `.sql` con `text()` en una sola transacción (los `:` de los datos se
+  escapan) y devuelve los registros insertados por tabla.
+- En PostgreSQL, ajuste de los contadores de ids (`setval`) después de
+  migrar, para que las altas nuevas no repitan ids de los CSV.
 - Archivos `.sql` generados a partir de los CSV (108 registros en total).
 - Celda de prueba sobre una base temporal en `/tmp`: conteos por tabla,
   relaciones con `JOIN`, determinismo, rollback al migrar dos veces y errores
@@ -76,9 +104,12 @@ Los cambios se registran del más reciente al más antiguo.
   `libros`, `precios`, `stock` y `cotizaciones_dolar`, con tipos de datos,
   claves primarias (simple, 1:1 en `stock` y compuesta en
   `cotizaciones_dolar`) y 6 claves foráneas.
-- Restricciones `UNIQUE` (nombres sin distinguir mayúsculas, CUIT, código de
-  moneda, ISBN y precio por libro, moneda y fecha) y `CHECK` (largos, rangos,
-  condición de IVA e importes).
+- Sentencias adaptadas al motor: ids `GENERATED BY DEFAULT AS IDENTITY` en
+  PostgreSQL y `INTEGER PRIMARY KEY` en SQLite; tablas existentes consultadas
+  en el catálogo de cada motor.
+- Restricciones `UNIQUE` (CUIT, código de moneda, ISBN y precio por libro,
+  moneda y fecha), índices únicos sobre `lower(nombre)` para géneros y tipos
+  de cotización, y `CHECK` (largos, rangos, condición de IVA e importes).
 - Integridad referencial sin borrado en cascada: la base impide borrar
   registros en uso y las bajas en cascada siguen en los servicios.
 - Clase `EsquemaDB` con `crear_tablas()`, `eliminar_tablas()`,
@@ -117,9 +148,11 @@ Los cambios se registran del más reciente al más antiguo.
 - Creación de la rama `Sprint_2` a partir de la rama `Sprint_1`.
 - Nuevas carpetas `database`, `models` y `migrations/sql`, con los módulos
   `connection.py`, `models.py` y `migrations.py`.
-- Archivo `.env` con la URL de la API de cotizaciones (`API_URL`), solo con
-  configuración pública.
-- `requirements.txt` con `SQLAlchemy` y `python-dotenv`.
+- Archivo `.env` con la URL de la API de cotizaciones (`API_URL`) y la
+  conexión a Supabase (`SQLALCHEMY_DATABASE_URL` y `SUPABASE_DB_PASSWORD`),
+  versionado por indicación de la cátedra; la contraseña se toma del secret
+  de Colab o del `.env` existente y nunca se escribe en el notebook.
+- `requirements.txt` con `SQLAlchemy`, `python-dotenv` y `psycopg[binary]`.
 - `.gitignore` excluye las bases de datos SQLite (`*.db`).
 - README actualizado al Sprint 2 (objetivo, introducción, contexto y estructura).
 - Encabezados del CHANGELOG del Sprint 1 normalizados al formato `[Ejercicio XX]`.
