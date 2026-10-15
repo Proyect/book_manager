@@ -9,6 +9,7 @@ la API de cotizaciones se lee del archivo .env con python-dotenv.
 """
 
 import copy
+import csv
 import datetime
 import re
 import unicodedata
@@ -32,6 +33,10 @@ from book_manager.repositories.repositories import (
 T = TypeVar('T', bound=EntidadBase)
 
 RUTA_ENV: Path = Path(__file__).resolve().parents[3] / ".env"
+RUTA_EXPORTACION: Path = (
+    Path(__file__).resolve().parent.parent / "data" / "exports"
+    / "precios.csv"
+)
 URL_CUSPIDE = "https://cuspide.com/"
 TIMEOUT_SEGUNDOS = 10
 ENCABEZADOS_HTTP = {"User-Agent": "Mozilla/5.0 (BookManager UGR)"}
@@ -298,6 +303,23 @@ class ServicioPrecio(ServicioCRUD[Precio]):
         """Devuelve el precio más reciente del libro."""
         precios = self._repo.leer_por_libro(libro_id)
         return precios[0] if precios else None
+
+    def precio_vigente_en(self, libro_id: int,
+                          moneda_id: int) -> Optional[Precio]:
+        """Devuelve el precio más reciente del libro en una moneda.
+
+        Args:
+            libro_id (int): Id del libro.
+            moneda_id (int): Id de la moneda.
+
+        Returns:
+            Optional[Precio]: El precio más reciente en esa moneda, o None
+            si el libro no tiene precio registrado en ella.
+        """
+        for precio in self._repo.leer_por_libro(libro_id):
+            if precio.moneda.id == moneda_id:
+                return precio
+        return None
 #@title Escritura de services.py (parte 2)
 
 
@@ -446,10 +468,6 @@ class ServicioCotizacionDolar:
         """
         return self._registrar_datos(self._descargar())
 
-    def actualizar_desde_api(self) -> List[CotizacionDolar]:
-        """Alias temporal de obtener_cotizaciones (se elimina en el Ej. 08)."""
-        return self.obtener_cotizaciones()
-
     def _descargar(self) -> List[Dict[str, Any]]:
         """Descarga las cotizaciones de la API.
 
@@ -532,10 +550,6 @@ class ServicioCotizacionDolar:
             return [self.registrar(cotizacion) for cotizacion in cotizaciones]
 
 
-# Alias temporal: console.py usa el nombre del Sprint 1 hasta el Ej. 08.
-ServicioCotizacion = ServicioCotizacionDolar
-
-
 @dataclass
 class LineaInventario:
     """Fila del reporte de inventario valorizado."""
@@ -549,6 +563,16 @@ class LineaInventario:
     def subtotal_ars(self) -> float:
         """Valor en pesos de las unidades en stock."""
         return (self.precio_ars or 0.0) * self.cantidad
+
+
+@dataclass
+class LineaBimonetaria:
+    """Fila de la lista de precios en pesos y en otra moneda."""
+
+    libro: Libro
+    moneda: Moneda
+    precio_ars: Optional[float]
+    precio_moneda: Optional[float]
 
 
 @dataclass
@@ -637,7 +661,7 @@ class ServicioCompetencia:
 
 
 class ServicioReportes:
-    """Reportes: inventario, reposición, cotizaciones y competencia."""
+    """Reportes: inventario, reposición, precios por moneda y competencia."""
 
     def __init__(self, servicio_libro: ServicioLibro,
                  servicio_precio: ServicioPrecio,
@@ -680,6 +704,89 @@ class ServicioReportes:
             lineas.append(LineaInventario(
                 libro, precio, self.precio_en_pesos(libro, tipo), cantidad))
         return lineas
+
+    def precio_en_moneda(self, libro: Libro, moneda: Moneda,
+                         tipo: TipoCotizacion) -> Optional[float]:
+        """Precio del libro expresado en una moneda.
+
+        Si el libro tiene precio registrado en esa moneda, se usa ese. Si
+        la moneda es USD, se convierte el precio en pesos con la venta de la
+        última cotización del tipo. En otro caso no hay dato, porque el
+        sistema solo tiene cotizaciones del dólar.
+
+        Args:
+            libro (Libro): Libro a cotizar.
+            moneda (Moneda): Moneda en la que se quiere el precio.
+            tipo (TipoCotizacion): Tipo de cotización para convertir USD.
+
+        Returns:
+            Optional[float]: El precio en la moneda, o None si no se puede
+            calcular.
+        """
+        if moneda.codigo == "ARS":
+            return self.precio_en_pesos(libro, tipo)
+        registrado = self._precios.precio_vigente_en(libro.id, moneda.id)
+        if registrado is not None:
+            return registrado.valor
+        if moneda.codigo != "USD":
+            return None
+        pesos = self.precio_en_pesos(libro, tipo)
+        cotizacion = self._cotizaciones.ultima(tipo.id)
+        if pesos is None or cotizacion is None:
+            return None
+        return round(pesos / cotizacion.venta, 2)
+
+    def lista_bimonetaria(self, moneda: Moneda, tipo: TipoCotizacion
+                          ) -> List[LineaBimonetaria]:
+        """Precio de cada libro en pesos y en la moneda seleccionada.
+
+        Args:
+            moneda (Moneda): Segunda moneda de la lista.
+            tipo (TipoCotizacion): Tipo de cotización para convertir USD.
+
+        Returns:
+            List[LineaBimonetaria]: Una línea por libro.
+        """
+        return [LineaBimonetaria(libro, moneda,
+                                 self.precio_en_pesos(libro, tipo),
+                                 self.precio_en_moneda(libro, moneda, tipo))
+                for libro in self._libros.listar()]
+
+    def exportar_precios_csv(self, ruta: Path, monedas: List[Moneda],
+                             tipo: TipoCotizacion) -> int:
+        """Exporta los precios de todos los libros en todas las monedas.
+
+        Escribe una fila por libro con su ISBN, su título y una columna por
+        moneda. Las celdas sin dato quedan vacías.
+
+        Args:
+            ruta (Path): Archivo CSV de destino (se crea la carpeta).
+            monedas (List[Moneda]): Monedas a exportar, una por columna.
+            tipo (TipoCotizacion): Tipo de cotización para convertir USD.
+
+        Returns:
+            int: Cantidad de libros exportados.
+
+        Raises:
+            ValueError: Si no se indica ninguna moneda.
+        """
+        if not monedas:
+            raise ValueError("No hay monedas para exportar.")
+        ruta = Path(ruta)
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        libros: List[Libro] = self._libros.listar()
+        with open(ruta, "w", newline="", encoding="utf-8") as archivo:
+            escritor = csv.writer(archivo)
+            escritor.writerow(["isbn", "titulo"]
+                              + [f"precio_{m.codigo}" for m in monedas])
+            for libro in libros:
+                valores = [self.precio_en_moneda(libro, moneda, tipo)
+                           for moneda in monedas]
+                escritor.writerow(
+                    [libro.isbn, libro.titulo]
+                    + ["" if valor is None else f"{valor:.2f}"
+                       for valor in valores])
+        return len(libros)
 
     def libros_para_reponer(self) -> List[Stock]:
         """Libros con stock por debajo del mínimo."""
