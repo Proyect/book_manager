@@ -1,41 +1,36 @@
+#@title Escritura de services.py (parte 1)
 """Servicios con la lógica de negocio aplicada a cada operación del sistema.
 
 Los servicios validan las reglas del negocio (unicidad, integridad
 referencial, stock suficiente, conversión de monedas) y delegan la
-persistencia en los repositorios.
+persistencia en los repositorios. Las operaciones que modifican varias
+tablas se ejecutan en una única transacción de la base de datos.
 """
 
 import copy
-import csv
 import datetime
-import os
 import re
 import unicodedata
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Dict, Generic, List, Optional, TypeVar
 
 import requests
 from bs4 import BeautifulSoup
-from dotenv import load_dotenv
 
+from book_manager.database.connection import ConexionDB
 from book_manager.entities.entities import (
     CotizacionDolar, Editorial, EntidadBase, Genero, Libro, Moneda, Precio,
     Stock, TipoCotizacion)
 from book_manager.repositories.repositories import (
-    RepositorioCotizacionDolar, RepositorioDB, RepositorioEditorial,
-    RepositorioGenero, RepositorioLibro, RepositorioMoneda,
-    RepositorioPrecio, RepositorioStock, RepositorioTipoCotizacion)
+    RepositorioCotizacionDolar, RepositorioEditorial, RepositorioGenero,
+    RepositorioLibro, RepositorioMoneda, RepositorioPrecio, RepositorioSQL,
+    RepositorioStock, RepositorioTipoCotizacion)
 
 T = TypeVar('T', bound=EntidadBase)
 
-load_dotenv(Path(__file__).resolve().parents[3] / ".env")
-
-URL_DOLAR_API = os.getenv("API_URL", "https://dolarapi.com/v1/dolares")
+URL_DOLAR_API = "https://dolarapi.com/v1/dolares"
 URL_CUSPIDE = "https://cuspide.com/"
 TIMEOUT_SEGUNDOS = 10
-DIRECTORIO_EXPORTACIONES = (Path(__file__).resolve().parents[1] / "data"
-                            / "exportaciones")
 ENCABEZADOS_HTTP = {"User-Agent": "Mozilla/5.0 (BookManager UGR)"}
 
 # Relación entre el campo "casa" de dolarapi.com y el nombre del tipo.
@@ -44,15 +39,10 @@ CASAS_DOLAR_API = {"oficial": "Oficial", "blue": "Blue", "bolsa": "MEP",
                    "cripto": "Cripto", "tarjeta": "Tarjeta"}
 
 
-def _vacio_si_none(valor: Optional[float]) -> Any:
-    """Devuelve '' en lugar de None (para escribir en el CSV)."""
-    return "" if valor is None else valor
-
-
 class ServicioCRUD(Generic[T]):
     """Lógica común de alta, lectura, modificación y baja de entidades."""
 
-    def __init__(self, repositorio: RepositorioDB[T]) -> None:
+    def __init__(self, repositorio: RepositorioSQL[T]) -> None:
         """Recibe el repositorio de la entidad."""
         self._repo = repositorio
 
@@ -201,19 +191,34 @@ class ServicioTipoCotizacion(ServicioCRUD[TipoCotizacion]):
 
 
 class ServicioLibro(ServicioCRUD[Libro]):
-    """Lógica de libros: ISBN único y baja en cascada de precios y stock."""
+    """Lógica de libros: ISBN único y baja en cascada de precios y stock.
+
+    El alta (libro y stock) y la baja (precios, stock y libro) se ejecutan
+    en una única transacción: o se completan enteras o no se hace nada.
+    """
 
     def __init__(self, repo: RepositorioLibro, repo_precio: RepositorioPrecio,
-                 repo_stock: RepositorioStock) -> None:
-        """Recibe los repositorios de libros, precios y stock."""
+                 repo_stock: RepositorioStock,
+                 conexion_db: ConexionDB) -> None:
+        """Recibe los repositorios de libros, precios y stock y la conexión.
+
+        Args:
+            repo (RepositorioLibro): Repositorio de libros.
+            repo_precio (RepositorioPrecio): Repositorio de precios.
+            repo_stock (RepositorioStock): Repositorio de stock.
+            conexion_db (ConexionDB): Conexión con la que se abren las
+                transacciones que abarcan varias tablas.
+        """
         super().__init__(repo)
         self._repo_precio = repo_precio
         self._repo_stock = repo_stock
+        self._conexion_db = conexion_db
 
     def crear(self, entidad: Libro) -> Libro:
-        """Da de alta el libro y le crea el stock en cero."""
-        libro = super().crear(entidad)
-        self._repo_stock.crear(Stock(libro))
+        """Da de alta el libro y le crea el stock en cero (atómico)."""
+        with self._conexion_db.transaccion():
+            libro = super().crear(entidad)
+            self._repo_stock.crear(Stock(libro))
         return libro
 
     def _validar_alta(self, entidad: Libro) -> None:
@@ -227,12 +232,13 @@ class ServicioLibro(ServicioCRUD[Libro]):
                 raise ValueError("Ya existe un libro con ese ISBN.")
 
     def eliminar(self, id: int) -> bool:
-        """Borra el libro junto con sus precios y su stock."""
+        """Borra el libro junto con sus precios y su stock (atómico)."""
         self.obtener(id)
-        for precio in self._repo_precio.leer_por_libro(id):
-            self._repo_precio.eliminar(precio.id)
-        self._repo_stock.eliminar(id)
-        return self._repo.eliminar(id)
+        with self._conexion_db.transaccion():
+            for precio in self._repo_precio.leer_por_libro(id):
+                self._repo_precio.eliminar(precio.id)
+            self._repo_stock.eliminar(id)
+            return self._repo.eliminar(id)
 
     def buscar(self, texto: str) -> List[Libro]:
         """Busca libros por título, autor o ISBN."""
@@ -325,16 +331,14 @@ class ServicioStock:
         return [s for s in self.listar() if s.requiere_reposicion]
 
 
-class ServicioCotizacionDolar:
-    """Lógica de cotizaciones del dólar (manuales y obtenidas por API)."""
+class ServicioCotizacion:
+    """Lógica de cotizaciones del dólar (manuales y en línea)."""
 
     def __init__(self, repo: RepositorioCotizacionDolar,
-                 repo_tipo: RepositorioTipoCotizacion,
-                 url_api: str = URL_DOLAR_API) -> None:
-        """Recibe los repositorios y la URL de la API (tomada del .env)."""
+                 repo_tipo: RepositorioTipoCotizacion) -> None:
+        """Recibe los repositorios de cotizaciones y de tipos."""
         self._repo = repo
         self._repo_tipo = repo_tipo
-        self._url_api = url_api
 
     def listar(self) -> List[CotizacionDolar]:
         """Devuelve todas las cotizaciones registradas."""
@@ -378,64 +382,30 @@ class ServicioCotizacionDolar:
             return self._repo.actualizar(cotizacion)
         return self._repo.crear(cotizacion)
 
-    def _descargar(self) -> List[Dict[str, Any]]:
-        """Descarga las cotizaciones desde la API configurada en el .env.
+    def actualizar_desde_api(self) -> List[CotizacionDolar]:
+        """Consulta dolarapi.com y registra las cotizaciones del día.
 
         Raises:
             ConnectionError: Si no se pudo obtener la información.
         """
         try:
-            respuesta = requests.get(self._url_api, timeout=TIMEOUT_SEGUNDOS,
+            respuesta = requests.get(URL_DOLAR_API, timeout=TIMEOUT_SEGUNDOS,
                                      headers=ENCABEZADOS_HTTP)
             respuesta.raise_for_status()
             datos = respuesta.json()
         except (requests.RequestException, ValueError) as error:
             raise ConnectionError(
                 f"No se pudo consultar la cotización: {error}") from error
-        if not isinstance(datos, list):
-            raise ConnectionError("La API devolvió un formato inesperado.")
-        return datos
-
-    def _tipo_para(self, item: Dict[str, Any]) -> TipoCotizacion:
-        """Devuelve el tipo de cotización del item; si no existe lo crea."""
-        casa = item.get("casa", "")
-        nombre = CASAS_DOLAR_API.get(casa) or item.get("nombre") or casa
-        tipo = self._repo_tipo.leer_por_nombre(nombre)
-        if tipo is None:
-            tipo = self._repo_tipo.crear(TipoCotizacion(
-                nombre, f"Dólar {item.get('nombre', nombre)} (dolarapi.com)"))
-        return tipo
-
-    @staticmethod
-    def _fecha_de(item: Dict[str, Any]) -> datetime.date:
-        """Fecha de actualización informada por la API (o la de hoy)."""
-        try:
-            return datetime.date.fromisoformat(
-                item["fechaActualizacion"][:10])
-        except (KeyError, TypeError, ValueError):
-            return datetime.date.today()
-
-    def obtener_cotizaciones(self) -> List[CotizacionDolar]:
-        """Busca, descarga y registra en la base las cotizaciones del día.
-
-        Consulta la API definida en API_URL (.env). Por cada tipo de dólar
-        informado crea el tipo si no existe y guarda (o actualiza) la
-        cotización de la fecha informada.
-
-        Returns:
-            List[CotizacionDolar]: Cotizaciones registradas.
-
-        Raises:
-            ConnectionError: Si no se pudo consultar la API.
-        """
         registradas = []
-        for item in self._descargar():
-            venta = item.get("venta")
-            if not venta:
+        hoy = datetime.date.today()
+        for item in datos:
+            nombre = CASAS_DOLAR_API.get(item.get("casa", ""))
+            tipo = self._repo_tipo.leer_por_nombre(nombre) if nombre else None
+            if tipo is None or not item.get("venta"):
                 continue
-            compra = item.get("compra") or venta
-            registradas.append(self.registrar(CotizacionDolar(
-                self._tipo_para(item), self._fecha_de(item), compra, venta)))
+            compra = item.get("compra") or item["venta"]
+            registradas.append(self.registrar(
+                CotizacionDolar(tipo, hoy, compra, item["venta"])))
         return registradas
 
 
@@ -452,6 +422,7 @@ class LineaInventario:
     def subtotal_ars(self) -> float:
         """Valor en pesos de las unidades en stock."""
         return (self.precio_ars or 0.0) * self.cantidad
+#@title Escritura de services.py (parte 2)
 
 
 @dataclass
@@ -469,22 +440,6 @@ class ComparacionPrecio:
             return None
         return round((self.precio_propio_ars / self.precio_competencia_ars
                       - 1) * 100, 2)
-
-
-@dataclass
-class PrecioBimonetario:
-    """Fila de la lista de precios en pesos y en otra moneda."""
-
-    libro: Libro
-    precio_ars: Optional[float]
-    cotizacion: Optional[CotizacionDolar]
-
-    @property
-    def precio_usd(self) -> Optional[float]:
-        """Precio expresado en dólares según la cotización (venta)."""
-        if self.precio_ars is None or self.cotizacion is None:
-            return None
-        return round(self.precio_ars / self.cotizacion.venta, 2)
 
 
 class ServicioCompetencia:
@@ -561,7 +516,7 @@ class ServicioReportes:
     def __init__(self, servicio_libro: ServicioLibro,
                  servicio_precio: ServicioPrecio,
                  servicio_stock: ServicioStock,
-                 servicio_cotizacion: ServicioCotizacionDolar,
+                 servicio_cotizacion: ServicioCotizacion,
                  servicio_competencia: ServicioCompetencia) -> None:
         """Recibe los servicios que se combinan en los reportes."""
         self._libros = servicio_libro
@@ -599,65 +554,6 @@ class ServicioReportes:
             lineas.append(LineaInventario(
                 libro, precio, self.precio_en_pesos(libro, tipo), cantidad))
         return lineas
-
-    def lista_bimonetaria(self, tipo: TipoCotizacion
-                          ) -> List[PrecioBimonetario]:
-        """Precio vigente de cada libro en pesos y en dólares.
-
-        Args:
-            tipo (TipoCotizacion): Tipo de dólar usado para convertir.
-
-        Returns:
-            List[PrecioBimonetario]: Una fila por libro.
-        """
-        cotizacion = self._cotizaciones.ultima(tipo.id)
-        return [PrecioBimonetario(libro, self.precio_en_pesos(libro, tipo),
-                                  cotizacion)
-                for libro in self._libros.listar()]
-
-    def exportar_precios_csv(self, ruta: Optional[Path] = None) -> Path:
-        """Exporta los precios en pesos y en cada tipo de dólar a un CSV.
-
-        Por cada tipo de cotización con valores registrados se agregan dos
-        columnas: el precio en pesos y en dólares según ese tipo.
-
-        Args:
-            ruta (Optional[Path]): Archivo destino. Por defecto
-                data/exportaciones/precios_AAAA-MM-DD.csv.
-
-        Returns:
-            Path: Ruta del archivo generado.
-        """
-        if ruta is None:
-            ruta = (DIRECTORIO_EXPORTACIONES
-                    / f"precios_{datetime.date.today().isoformat()}.csv")
-        tipos = self._tipos_con_cotizacion()
-        listas = {t.nombre: self.lista_bimonetaria(t) for t in tipos}
-        encabezado = ["libro_id", "isbn", "titulo", "moneda_origen",
-                      "precio_origen"]
-        for tipo in tipos:
-            encabezado += [f"ARS_{tipo.nombre}", f"USD_{tipo.nombre}"]
-        ruta.parent.mkdir(parents=True, exist_ok=True)
-        with open(ruta, "w", newline="", encoding="utf-8") as archivo:
-            escritor = csv.writer(archivo)
-            escritor.writerow(encabezado)
-            for i, libro in enumerate(self._libros.listar()):
-                precio = self._precios.precio_vigente(libro.id)
-                fila: List[Any] = [
-                    libro.id, libro.isbn, libro.titulo,
-                    precio.moneda.codigo if precio else "",
-                    precio.valor if precio else ""]
-                for tipo in tipos:
-                    item = listas[tipo.nombre][i]
-                    fila += [_vacio_si_none(item.precio_ars),
-                             _vacio_si_none(item.precio_usd)]
-                escritor.writerow(fila)
-        return ruta
-
-    def _tipos_con_cotizacion(self) -> List[TipoCotizacion]:
-        """Tipos de cotización que tienen al menos un valor registrado."""
-        tipos = {c.tipo_id: c.tipo for c in self._cotizaciones.listar()}
-        return [tipos[i] for i in sorted(tipos)]
 
     def libros_para_reponer(self) -> List[Stock]:
         """Libros con stock por debajo del mínimo."""
