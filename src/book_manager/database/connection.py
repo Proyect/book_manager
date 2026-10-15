@@ -2,14 +2,17 @@
 """Conexión a la base de datos de Book Manager.
 
 Define la clase ConexionDB, única responsable de crear el engine de
-SQLAlchemy y de entregar conexiones al resto del sistema. Se usa SQLite
-con la notación vista en la cursada: create_engine, connect y text().
+SQLAlchemy y de entregar conexiones al resto del sistema, y el context
+manager Transaccion, que confirma o deshace los cambios de un bloque de
+código. Se usa SQLite con la notación vista en la cursada: create_engine,
+connect, begin y text().
 """
 from pathlib import Path
-from typing import Optional
+from types import TracebackType
+from typing import Optional, Type
 
 from sqlalchemy import create_engine
-from sqlalchemy.engine import Connection, Engine, make_url
+from sqlalchemy.engine import Connection, Engine, RootTransaction, make_url
 from sqlalchemy.exc import ArgumentError
 from sqlalchemy.sql import text
 
@@ -23,7 +26,8 @@ class ConexionDB:
     """Administra el engine de SQLAlchemy y entrega conexiones.
 
     El engine es privado: la única forma de obtener una conexión es
-    conectar(), que además activa las claves foráneas en SQLite.
+    conectar(), que además activa las claves foráneas en SQLite. Para
+    operar dentro de una transacción se usa transaccion().
     """
 
     def __init__(self, url: Optional[str] = None, echo: bool = False) -> None:
@@ -113,6 +117,18 @@ class ConexionDB:
             conexion.commit()
         return conexion
 
+    def transaccion(self) -> "Transaccion":
+        """Crea un context manager para operar dentro de una transacción.
+
+        Uso:
+            with conexion_db.transaccion() as conexion:
+                conexion.execute(text("INSERT ..."), {...})
+
+        Returns:
+            Transaccion: Context manager nuevo, de un solo uso.
+        """
+        return Transaccion(self)
+
     def cerrar(self) -> None:
         """Libera el engine y todas sus conexiones del pool."""
         if self.__engine is not None:
@@ -123,3 +139,89 @@ class ConexionDB:
         """Representación técnica de la conexión."""
         estado: str = "activa" if self.activa else "cerrada"
         return f"ConexionDB(url={self.__url!r}, {estado})"
+
+
+class Transaccion:
+    """Context manager que maneja una transacción completa.
+
+    Al entrar abre una conexión e inicia la transacción. Al salir confirma
+    los cambios si el bloque terminó bien o los deshace si hubo una
+    excepción, y siempre cierra la conexión. La excepción se propaga.
+    """
+
+    def __init__(self, conexion_db: ConexionDB) -> None:
+        """Prepara la transacción sobre una ConexionDB.
+
+        Args:
+            conexion_db (ConexionDB): Conexión de la que se obtiene la
+                conexión para la transacción.
+
+        Raises:
+            TypeError: Si conexion_db no es una ConexionDB.
+        """
+        if not isinstance(conexion_db, ConexionDB):
+            raise TypeError("La transacción requiere una ConexionDB.")
+        self.__conexion_db: ConexionDB = conexion_db
+        self.__conexion: Optional[Connection] = None
+        self.__transaccion: Optional[RootTransaction] = None
+        self.__usada: bool = False
+
+    @property
+    def en_curso(self) -> bool:
+        """Indica si la transacción está abierta (dentro del bloque with)."""
+        return self.__conexion is not None
+
+    def __enter__(self) -> Connection:
+        """Abre la conexión e inicia la transacción.
+
+        Returns:
+            Connection: Conexión sobre la que se ejecutan las sentencias.
+
+        Raises:
+            RuntimeError: Si la transacción ya fue utilizada.
+        """
+        if self.__usada:
+            raise RuntimeError(
+                "La transacción ya fue utilizada; pedir una nueva con "
+                "transaccion()."
+            )
+        self.__usada = True
+        self.__conexion = self.__conexion_db.conectar()
+        try:
+            self.__transaccion = self.__conexion.begin()
+        except Exception:
+            self.__conexion.close()
+            self.__conexion = None
+            raise
+        return self.__conexion
+
+    def __exit__(
+        self,
+        tipo_error: Optional[Type[BaseException]],
+        error: Optional[BaseException],
+        traza: Optional[TracebackType],
+    ) -> bool:
+        """Confirma o deshace la transacción y cierra la conexión.
+
+        Args:
+            tipo_error (Optional[Type[BaseException]]): Tipo de la excepción
+                ocurrida en el bloque, o None si terminó bien.
+            error (Optional[BaseException]): Excepción ocurrida, o None.
+            traza (Optional[TracebackType]): Traza de la excepción, o None.
+
+        Returns:
+            bool: Siempre False, para que la excepción (si la hubo) se
+            propague a quien usó el bloque with.
+        """
+        try:
+            if self.__transaccion is not None:
+                if tipo_error is None:
+                    self.__transaccion.commit()
+                else:
+                    self.__transaccion.rollback()
+        finally:
+            if self.__conexion is not None:
+                self.__conexion.close()
+            self.__conexion = None
+            self.__transaccion = None
+        return False
