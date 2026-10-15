@@ -4,7 +4,8 @@
 Los servicios validan las reglas del negocio (unicidad, integridad
 referencial, stock suficiente, conversión de monedas) y delegan la
 persistencia en los repositorios. Las operaciones que modifican varias
-tablas se ejecutan en una única transacción de la base de datos.
+tablas se ejecutan en una única transacción de la base de datos. La URL de
+la API de cotizaciones se lee del archivo .env con python-dotenv.
 """
 
 import copy
@@ -12,10 +13,12 @@ import datetime
 import re
 import unicodedata
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Generic, List, Optional, TypeVar
 
 import requests
 from bs4 import BeautifulSoup
+from dotenv import dotenv_values
 
 from book_manager.database.connection import ConexionDB
 from book_manager.entities.entities import (
@@ -28,7 +31,7 @@ from book_manager.repositories.repositories import (
 
 T = TypeVar('T', bound=EntidadBase)
 
-URL_DOLAR_API = "https://dolarapi.com/v1/dolares"
+RUTA_ENV: Path = Path(__file__).resolve().parents[3] / ".env"
 URL_CUSPIDE = "https://cuspide.com/"
 TIMEOUT_SEGUNDOS = 10
 ENCABEZADOS_HTTP = {"User-Agent": "Mozilla/5.0 (BookManager UGR)"}
@@ -37,6 +40,28 @@ ENCABEZADOS_HTTP = {"User-Agent": "Mozilla/5.0 (BookManager UGR)"}
 CASAS_DOLAR_API = {"oficial": "Oficial", "blue": "Blue", "bolsa": "MEP",
                    "contadoconliqui": "CCL", "mayorista": "Mayorista",
                    "cripto": "Cripto", "tarjeta": "Tarjeta"}
+
+
+def cargar_url_api(ruta_env: Path = RUTA_ENV) -> str:
+    """Lee la URL de la API de cotizaciones del archivo .env.
+
+    Args:
+        ruta_env (Path): Ruta del archivo .env (por defecto, el de la raíz
+            del repositorio).
+
+    Returns:
+        str: Valor de la variable API_URL.
+
+    Raises:
+        ValueError: Si el archivo no existe o no define API_URL.
+    """
+    if not ruta_env.is_file():
+        raise ValueError(f"No se encontró el archivo de configuración "
+                         f"{ruta_env}.")
+    url: Optional[str] = dotenv_values(ruta_env).get("API_URL")
+    if not url or not url.strip():
+        raise ValueError(f"El archivo {ruta_env.name} no define API_URL.")
+    return url.strip()
 
 
 class ServicioCRUD(Generic[T]):
@@ -273,6 +298,7 @@ class ServicioPrecio(ServicioCRUD[Precio]):
         """Devuelve el precio más reciente del libro."""
         precios = self._repo.leer_por_libro(libro_id)
         return precios[0] if precios else None
+#@title Escritura de services.py (parte 2)
 
 
 class ServicioStock:
@@ -331,14 +357,37 @@ class ServicioStock:
         return [s for s in self.listar() if s.requiere_reposicion]
 
 
-class ServicioCotizacion:
-    """Lógica de cotizaciones del dólar (manuales y en línea)."""
+class ServicioCotizacionDolar:
+    """Lógica de cotizaciones del dólar (manuales y obtenidas por API)."""
 
     def __init__(self, repo: RepositorioCotizacionDolar,
-                 repo_tipo: RepositorioTipoCotizacion) -> None:
-        """Recibe los repositorios de cotizaciones y de tipos."""
+                 repo_tipo: RepositorioTipoCotizacion,
+                 conexion_db: ConexionDB, url_api: str) -> None:
+        """Recibe los repositorios, la conexión y la URL de la API.
+
+        Args:
+            repo (RepositorioCotizacionDolar): Repositorio de cotizaciones.
+            repo_tipo (RepositorioTipoCotizacion): Repositorio de tipos.
+            conexion_db (ConexionDB): Conexión para registrar todas las
+                cotizaciones descargadas en una sola transacción.
+            url_api (str): URL de la API de cotizaciones (leída del .env).
+
+        Raises:
+            ValueError: Si la URL no es un texto http(s) válido.
+        """
+        if not isinstance(url_api, str) or not url_api.startswith(
+                ("http://", "https://")):
+            raise ValueError("La URL de la API debe empezar con http:// o "
+                             "https://.")
         self._repo = repo
         self._repo_tipo = repo_tipo
+        self._conexion_db = conexion_db
+        self._url_api = url_api
+
+    @property
+    def url_api(self) -> str:
+        """URL de la API de cotizaciones (solo lectura)."""
+        return self._url_api
 
     def listar(self) -> List[CotizacionDolar]:
         """Devuelve todas las cotizaciones registradas."""
@@ -382,31 +431,109 @@ class ServicioCotizacion:
             return self._repo.actualizar(cotizacion)
         return self._repo.crear(cotizacion)
 
-    def actualizar_desde_api(self) -> List[CotizacionDolar]:
-        """Consulta dolarapi.com y registra las cotizaciones del día.
+    def obtener_cotizaciones(self) -> List[CotizacionDolar]:
+        """Busca, descarga y registra en la base las cotizaciones de la API.
+
+        Returns:
+            List[CotizacionDolar]: Cotizaciones registradas (creadas o
+            actualizadas).
 
         Raises:
-            ConnectionError: Si no se pudo obtener la información.
+            ConnectionError: Si no se pudo consultar la API o la respuesta
+                no tiene el formato esperado.
+            ValueError: Si alguna cotización recibida es inválida (en ese
+                caso no se registra ninguna).
+        """
+        return self._registrar_datos(self._descargar())
+
+    def actualizar_desde_api(self) -> List[CotizacionDolar]:
+        """Alias temporal de obtener_cotizaciones (se elimina en el Ej. 08)."""
+        return self.obtener_cotizaciones()
+
+    def _descargar(self) -> List[Dict[str, Any]]:
+        """Descarga las cotizaciones de la API.
+
+        Returns:
+            List[Dict[str, Any]]: Elementos de la respuesta JSON.
+
+        Raises:
+            ConnectionError: Si falla la consulta o el formato no es una
+                lista JSON.
         """
         try:
-            respuesta = requests.get(URL_DOLAR_API, timeout=TIMEOUT_SEGUNDOS,
+            respuesta = requests.get(self._url_api, timeout=TIMEOUT_SEGUNDOS,
                                      headers=ENCABEZADOS_HTTP)
             respuesta.raise_for_status()
             datos = respuesta.json()
         except (requests.RequestException, ValueError) as error:
             raise ConnectionError(
-                f"No se pudo consultar la cotización: {error}") from error
-        registradas = []
-        hoy = datetime.date.today()
+                f"No se pudo consultar la API de cotizaciones: {error}"
+            ) from error
+        if not isinstance(datos, list):
+            raise ConnectionError(
+                "La API de cotizaciones devolvió un formato inesperado."
+            )
+        return datos
+
+    @staticmethod
+    def _fecha_de(item: Dict[str, Any]) -> datetime.date:
+        """Fecha de una cotización según su campo fechaActualizacion.
+
+        Args:
+            item (Dict[str, Any]): Elemento de la respuesta de la API.
+
+        Returns:
+            datetime.date: La fecha informada por la API, o la fecha del
+            día si el campo falta o no es válido.
+        """
+        texto: Any = item.get("fechaActualizacion")
+        if isinstance(texto, str) and len(texto) >= 10:
+            try:
+                return datetime.date.fromisoformat(texto[:10])
+            except ValueError:
+                pass
+        return datetime.date.today()
+
+    def _registrar_datos(self, datos: List[Dict[str, Any]]
+                         ) -> List[CotizacionDolar]:
+        """Convierte los datos de la API en cotizaciones y las registra.
+
+        Las casas sin tipo de cotización asociado se ignoran. Primero se
+        construyen todas las cotizaciones y después se registran en una
+        sola transacción.
+
+        Args:
+            datos (List[Dict[str, Any]]): Elementos descargados de la API.
+
+        Returns:
+            List[CotizacionDolar]: Cotizaciones registradas.
+
+        Raises:
+            ValueError: Si alguna cotización no pasa las validaciones.
+        """
+        cotizaciones: List[CotizacionDolar] = []
         for item in datos:
-            nombre = CASAS_DOLAR_API.get(item.get("casa", ""))
-            tipo = self._repo_tipo.leer_por_nombre(nombre) if nombre else None
-            if tipo is None or not item.get("venta"):
+            if not isinstance(item, dict):
                 continue
-            compra = item.get("compra") or item["venta"]
-            registradas.append(self.registrar(
-                CotizacionDolar(tipo, hoy, compra, item["venta"])))
-        return registradas
+            nombre: Optional[str] = CASAS_DOLAR_API.get(item.get("casa", ""))
+            tipo = self._repo_tipo.leer_por_nombre(nombre) if nombre else None
+            if tipo is None or item.get("venta") is None:
+                continue
+            compra: Any = (item["compra"] if item.get("compra") is not None
+                           else item["venta"])
+            try:
+                cotizaciones.append(CotizacionDolar(
+                    tipo, self._fecha_de(item), compra, item["venta"]))
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"Cotización inválida recibida para '{nombre}': {error}"
+                ) from error
+        with self._conexion_db.transaccion():
+            return [self.registrar(cotizacion) for cotizacion in cotizaciones]
+
+
+# Alias temporal: console.py usa el nombre del Sprint 1 hasta el Ej. 08.
+ServicioCotizacion = ServicioCotizacionDolar
 
 
 @dataclass
@@ -422,7 +549,6 @@ class LineaInventario:
     def subtotal_ars(self) -> float:
         """Valor en pesos de las unidades en stock."""
         return (self.precio_ars or 0.0) * self.cantidad
-#@title Escritura de services.py (parte 2)
 
 
 @dataclass
@@ -516,7 +642,7 @@ class ServicioReportes:
     def __init__(self, servicio_libro: ServicioLibro,
                  servicio_precio: ServicioPrecio,
                  servicio_stock: ServicioStock,
-                 servicio_cotizacion: ServicioCotizacion,
+                 servicio_cotizacion: ServicioCotizacionDolar,
                  servicio_competencia: ServicioCompetencia) -> None:
         """Recibe los servicios que se combinan en los reportes."""
         self._libros = servicio_libro
