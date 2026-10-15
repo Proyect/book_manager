@@ -2,7 +2,8 @@
 """Punto de entrada del sistema Book Manager.
 
 Arma la conexión a la base de datos, los repositorios y los servicios, carga
-los datos iniciales si hace falta e inicia la consola.
+los datos iniciales si hace falta e inicia la consola. La URL de la API de
+cotizaciones se lee del archivo .env.
 """
 
 from typing import Optional
@@ -14,21 +15,27 @@ from book_manager.repositories.repositories import (
     RepositorioLibro, RepositorioMoneda, RepositorioPrecio, RepositorioStock,
     RepositorioTipoCotizacion)
 from book_manager.services.services import (
-    ServicioCompetencia, ServicioCotizacion, ServicioEditorial,
+    ServicioCompetencia, ServicioCotizacionDolar, ServicioEditorial,
     ServicioGenero, ServicioLibro, ServicioMoneda, ServicioPrecio,
-    ServicioReportes, ServicioStock, ServicioTipoCotizacion)
+    ServicioReportes, ServicioStock, ServicioTipoCotizacion, cargar_url_api)
 from book_manager.ui.console import Consola, Servicios
 
 
-def crear_servicios(conexion_db: ConexionDB) -> Servicios:
+def crear_servicios(conexion_db: ConexionDB,
+                    url_api: Optional[str] = None) -> Servicios:
     """Construye repositorios y servicios con sus dependencias.
 
     Args:
         conexion_db (ConexionDB): Conexión que comparten todos los
             repositorios del sistema.
+        url_api (Optional[str]): URL de la API de cotizaciones. Si es None,
+            se lee del archivo .env.
 
     Returns:
         Servicios: Servicios listos para la consola.
+
+    Raises:
+        ValueError: Si url_api es None y el .env no define API_URL.
     """
     repo_genero = RepositorioGenero(conexion_db)
     repo_editorial = RepositorioEditorial(conexion_db)
@@ -42,7 +49,9 @@ def crear_servicios(conexion_db: ConexionDB) -> Servicios:
     libro = ServicioLibro(repo_libro, repo_precio, repo_stock, conexion_db)
     precio = ServicioPrecio(repo_precio)
     stock = ServicioStock(repo_stock, repo_libro)
-    cotizacion = ServicioCotizacion(repo_cotizacion, repo_tipo)
+    cotizacion = ServicioCotizacionDolar(
+        repo_cotizacion, repo_tipo, conexion_db,
+        url_api if url_api is not None else cargar_url_api())
     reportes = ServicioReportes(libro, precio, stock, cotizacion,
                                 ServicioCompetencia())
     return Servicios(
