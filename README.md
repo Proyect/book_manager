@@ -8,31 +8,46 @@
 
 ## Objetivo
 
-Consolidar las bases del manejo de bases de datos relacionales: normalización, conexión segura, carga inicial de datos y consultas a APIs externas, aplicando programación orientada a objetos con el ORM SQLAlchemy.
+Aplicar los conocimientos adquiridos en programación orientada a objetos y en
+el almacenamiento de datos para su persistencia, consolidando las bases del
+manejo de bases de datos relacionales: normalización, conexión segura y carga
+inicial.
 
 ## Introducción y contexto
 
-Una librería con venta al público necesita modernizar su sistema de gestión de inventario de libros. Debido a la fluctuación en los costos de importación de material bibliográfico, el sistema debe gestionar precios en diferentes monedas y seguir de cerca la cotización del dólar para actualizar sus valores en tiempo real.
+Una librería con venta al público necesita modernizar su sistema de gestión
+de inventario de libros. Debido a la fluctuación en los costos de importación
+de material bibliográfico, el sistema gestiona precios en diferentes monedas y
+sigue de cerca la cotización del dólar.
 
-En el Sprint 1 se desarrolló una aplicación de consola (CLI) en Python que persistía los datos en archivos CSV. En este Sprint 2 se amplía el alcance:
+En el Sprint 1 se desarrolló una aplicación de consola (CLI) en Python, con
+persistencia en archivos CSV, que permite gestionar el inventario, cotizar los
+libros según el valor del dólar y comparar precios con la competencia web
+(tomando como referencia el sitio Cúspide).
 
-- La aplicación persiste en una **base de datos relacional** (SQLite por defecto) usando el ORM **SQLAlchemy**.
-- Se **migran** todos los datos cargados en los archivos CSV del Sprint 1 a tablas relacionales, generando los scripts `.sql` de la migración.
-- La URL de la API de cotizaciones se configura en un archivo **`.env`** (python-dotenv) y las cotizaciones obtenidas se registran en la base.
-- Se agregan al menú la obtención de cotizaciones por API, la lista de precios **bimonetaria** y la **exportación de precios a CSV**.
+En el Sprint 2 se amplía el alcance:
 
-### Entidades / tablas
+- La aplicación pasa a persistir en una base de datos relacional
+  (PostgreSQL en Supabase), usando SQLAlchemy. La conexión se configura en
+  el archivo `.env`; sin esas credenciales, el sistema usa una base SQLite
+  local.
+- Los datos cargados en los archivos del Sprint 1 se migran a tablas
+  relacionales, generando los archivos `.sql` de inserción.
+- Las cotizaciones del dólar se obtienen de una API externa, cuya URL
+  también se configura en el archivo `.env`.
+- La consola suma la obtención de cotizaciones por API, la lista de precios
+  bimonetaria y la exportación de precios a CSV.
 
-| Entidad | Tabla | Relaciones |
-|---|---|---|
-| Genero | `generos` | 1 a N con libros |
-| Editorial | `editoriales` | 1 a N con libros |
-| Moneda | `monedas` | 1 a N con precios |
-| TipoCotizacion | `tipos_cotizacion` | 1 a N con cotizaciones |
-| Libro | `libros` | N a 1 con editorial y género |
-| Precio | `precios` | N a 1 con libro y moneda |
-| Stock | `stock` | 1 a 1 con libro |
-| CotizacionDolar | `cotizaciones_dolar` | N a 1 con tipo (clave: tipo y fecha) |
+### Entidades
+
+- **Libro**: cada título del catálogo (ISBN, título, autor, editorial, género, etc.).
+- **Genero**: categoría literaria a la que pertenece un libro.
+- **Editorial**: proveedor/distribuidora que provee los libros.
+- **Moneda**: monedas en las que se expresa un precio (ARS, USD, etc.).
+- **TipoCotizacion**: tipos de cotización del dólar (Oficial, Blue, MEP, etc.).
+- **Precio**: valor monetario de un libro en una moneda determinada.
+- **Stock**: cantidad disponible de cada libro.
+- **CotizacionDolar**: registro histórico de cotizaciones por tipo y fecha.
 
 ## Estructura del proyecto
 
@@ -40,15 +55,15 @@ En el Sprint 1 se desarrolló una aplicación de consola (CLI) en Python que per
 book_manager/
 ├── src/
 │   └── book_manager/
-│       ├── database/connection.py      # ConexionDB y context manager de transacciones
-│       ├── entities/entities.py        # Entidades del dominio
-│       ├── models/models.py            # Tablas (modelos ORM)
+│       ├── database/connection.py
+│       ├── entities/entities.py
+│       ├── models/models.py
 │       ├── preload_data/preload_data.py
 │       ├── repositories/repositories.py
 │       ├── services/services.py
 │       ├── migrations/
-│       │   ├── csv/                    # Datos del Sprint 1
-│       │   ├── sql/                    # Scripts generados por la migración
+│       │   ├── csv/
+│       │   ├── sql/
 │       │   └── migrations.py
 │       ├── ui/console.py
 │       └── main.py
@@ -56,20 +71,6 @@ book_manager/
 ├── CHANGELOG.md
 ├── README.md
 └── requirements.txt
-```
-
-## Configuración (`.env`)
-
-```
-API_URL=https://dolarapi.com/v1/dolares
-# DATABASE_URL=sqlite:///ruta/a/book_manager.db  (opcional)
-```
-
-## Ejecución
-
-```python
-from book_manager.main import main
-main(import_default_data=False)
 ```
 
 ## Integrantes
