@@ -4,19 +4,6 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 2
 
-[Ejercicio 02]
-- Clase `ConexionDB` en `database/connection.py`, única responsable de crear
-  el engine de SQLAlchemy y entregar conexiones.
-- Base SQLite por defecto en `src/book_manager/data/book_manager.db` (excluida
-  del repositorio), con URL configurable por constructor.
-- Engine privado: las conexiones solo se obtienen con `conectar()`, que activa
-  las claves foráneas (`PRAGMA foreign_keys = ON`) y deja la conexión sin
-  transacción abierta.
-- Creación automática de la carpeta del archivo SQLite si no existe.
-- Validación de la URL y del parámetro `echo`; `cerrar()` libera el engine.
-- Celda de prueba sobre una base temporal en `/tmp`: transacciones,
-  integridad referencial, validaciones y cierre.
-
 [Ejercicio 01]
 - Creación de la rama `Sprint_2` a partir de la rama `Sprint_1`.
 - Nuevas carpetas `database`, `models` y `migrations/sql`, con los módulos
