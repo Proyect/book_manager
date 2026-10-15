@@ -4,6 +4,19 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 2
 
+[Ejercicio 03]
+- Context manager `Transaccion` en `database/connection.py`, implementado como
+  clase con `__enter__` y `__exit__`.
+- Al entrar abre una conexión con `conectar()` e inicia la transacción; al
+  salir confirma (`commit`) si el bloque terminó bien o deshace (`rollback`)
+  si hubo una excepción, y siempre cierra la conexión.
+- Las excepciones se propagan a quien usa el bloque `with`.
+- Método `ConexionDB.transaccion()` que crea un context manager nuevo, de un
+  solo uso, por cada operación.
+- Celda de prueba sobre una base temporal en `/tmp`: commit, rollback con
+  propagación del error, atomicidad ante una violación de clave foránea y
+  usos inválidos.
+
 [Ejercicio 02]
 - Clase `ConexionDB` en `database/connection.py`, única responsable de crear
   el engine de SQLAlchemy y entregar conexiones.
