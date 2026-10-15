@@ -4,6 +4,30 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 2
 
+[Ejercicio 06]
+- Repositorios reescritos para persistir en la base de datos con SQL
+  parametrizado: `RepositorioBaseSQL` (ejecución y conversión de errores de
+  integridad en `ValueError`) y `RepositorioSQL[T]`, genérico con CRUD
+  completo, que reemplaza a `ArchivoCSV` y `RepositorioCSV`.
+- Interfaces de la cátedra sin cambios; los repositorios conservan sus
+  nombres y sus búsquedas auxiliares (`leer_por_codigo`, `leer_por_nombre`,
+  `leer_por_isbn`, `leer_por_libro`).
+- Ids asignados por la base (`lastrowid`) en lugar de `max(id) + 1`; sin
+  caché en memoria.
+- Transacciones compartidas en `ConexionDB`: una transacción abierta
+  mientras otra está en curso se suma a la externa.
+- `ServicioLibro` hace el alta (libro y stock) y la baja en cascada (precios,
+  stock y libro) en una única transacción.
+- `preload_data.py`: `importar_datos(conexion_db)` recrea el esquema, genera
+  y ejecuta los `.sql` y valida cada registro con las entidades en la misma
+  transacción; `hay_datos(conexion_db)` revisa el esquema y los libros.
+- `main.py`: una `ConexionDB` compartida por todos los repositorios; con
+  `import_default_data=False` usa la base existente o la carga si está vacía;
+  parámetro opcional `conexion_db` para las pruebas.
+- Celdas de prueba sobre bases temporales en `/tmp`: transacciones
+  compartidas, repositorios y prueba integral del sistema (carga, reportes,
+  alta y baja atómicas, persistencia y `main` con entrada simulada).
+
 [Ejercicio 05]
 - Migración de datos en `migrations/migrations.py`, con la configuración de
   cada tabla en la clase `TablaMigracion` (columnas esperadas y columnas
