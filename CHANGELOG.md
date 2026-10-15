@@ -4,6 +4,27 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 2
 
+[Ejercicio 07]
+- Función `cargar_url_api()` en `services.py`: lee `API_URL` del archivo
+  `.env` de la raíz del repositorio con `python-dotenv` (`dotenv_values`) y
+  valida que exista; se elimina la URL fija del Sprint 1.
+- `ServicioCotizacion` renombrado a `ServicioCotizacionDolar`, con la URL de
+  la API y la conexión recibidas por constructor (URL validada y de solo
+  lectura).
+- Función `obtener_cotizaciones()`: descarga las cotizaciones de la API
+  (`ConnectionError` ante fallas de red o formato) y las registra en la base,
+  creando o actualizando por tipo y fecha.
+- Fecha de cada cotización tomada de `fechaActualizacion` de la API; casas sin
+  tipo asociado ignoradas; registro del lote completo en una transacción (un
+  dato inválido no deja nada registrado).
+- Alias temporales `ServicioCotizacion` y `actualizar_desde_api` para que la
+  consola siga funcionando hasta el Ejercicio 08.
+- `main.py` lee la URL del `.env` y se la pasa al servicio; `crear_servicios`
+  acepta una URL opcional para las pruebas.
+- Instalación de `python-dotenv` en la celda de imports del notebook.
+- Celda de prueba: lectura del `.env`, registro con datos de ejemplo,
+  actualización sin duplicados, rechazo atómico, API real y errores de red.
+
 [Ejercicio 06]
 - Repositorios reescritos para persistir en la base de datos con SQL
   parametrizado: `RepositorioBaseSQL` (ejecución y conversión de errores de
