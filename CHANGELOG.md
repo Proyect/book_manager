@@ -4,6 +4,24 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 2
 
+[Ejercicio 04]
+- Esquema relacional en `models/models.py`, escrito en SQL y ejecutado con
+  `text()` (sin modelos declarativos, como indica el material de la cátedra).
+- 8 tablas: `generos`, `editoriales`, `monedas`, `tipos_cotizacion`,
+  `libros`, `precios`, `stock` y `cotizaciones_dolar`, con tipos de datos,
+  claves primarias (simple, 1:1 en `stock` y compuesta en
+  `cotizaciones_dolar`) y 6 claves foráneas.
+- Restricciones `UNIQUE` (nombres sin distinguir mayúsculas, CUIT, código de
+  moneda, ISBN y precio por libro, moneda y fecha) y `CHECK` (largos, rangos,
+  condición de IVA e importes).
+- Integridad referencial sin borrado en cascada: la base impide borrar
+  registros en uso y las bajas en cascada siguen en los servicios.
+- Clase `EsquemaDB` con `crear_tablas()`, `eliminar_tablas()`,
+  `tablas_existentes()` y `esta_creado()`, en orden de dependencias e
+  idempotentes (`IF NOT EXISTS`).
+- Celda de prueba sobre una base temporal en `/tmp`: creación, estructura,
+  claves foráneas, id autoincremental, restricciones y eliminación.
+
 [Ejercicio 03]
 - Context manager `Transaccion` en `database/connection.py`, implementado como
   clase con `__enter__` y `__exit__`.
