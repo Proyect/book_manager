@@ -4,6 +4,26 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 2
 
+[Ejercicio 05]
+- Migración de datos en `migrations/migrations.py`, con la configuración de
+  cada tabla en la clase `TablaMigracion` (columnas esperadas y columnas
+  numéricas).
+- `migrar_datos(carpeta_csvs, carpeta_sqls)`, con la firma del código base de
+  la cátedra: lee los CSV del Sprint 1 y genera un `.sql` por tabla en
+  `migrations/sql`, en orden de dependencias (`01_generos.sql` a
+  `08_cotizaciones_dolar.sql`).
+- Validación previa de todos los CSV (columnas exactas y valores numéricos):
+  si uno es inválido no se escribe ningún archivo.
+- Textos escapados con comillas simples duplicadas; archivos deterministas,
+  sin fecha de generación.
+- `ejecutar_migraciones(conexion_db, carpeta_sqls)`: puebla la base ejecutando
+  los `.sql` en una sola transacción y devuelve los registros insertados por
+  tabla.
+- Archivos `.sql` generados a partir de los CSV (108 registros en total).
+- Celda de prueba sobre una base temporal en `/tmp`: conteos por tabla,
+  relaciones con `JOIN`, determinismo, rollback al migrar dos veces y errores
+  de entrada.
+
 [Ejercicio 04]
 - Esquema relacional en `models/models.py`, escrito en SQL y ejecutado con
   `text()` (sin modelos declarativos, como indica el material de la cátedra).
