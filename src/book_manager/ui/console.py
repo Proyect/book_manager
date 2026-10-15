@@ -1,18 +1,18 @@
+#@title Escritura de console.py (parte 1)
 """Interfaz de consola (CLI) que opera con los CRUD de cada entidad."""
 
 import datetime
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, TypeVar
-
-from sqlalchemy.exc import SQLAlchemyError
 
 from book_manager.entities.entities import (
     CotizacionDolar, Editorial, Genero, Libro, Moneda, Precio, Stock,
     TipoCotizacion)
 from book_manager.services.services import (
-    ServicioCotizacionDolar, ServicioCRUD, ServicioEditorial, ServicioGenero,
-    ServicioLibro, ServicioMoneda, ServicioPrecio, ServicioReportes,
-    ServicioStock, ServicioTipoCotizacion)
+    RUTA_EXPORTACION, ServicioCotizacionDolar, ServicioCRUD,
+    ServicioEditorial, ServicioGenero, ServicioLibro, ServicioMoneda,
+    ServicioPrecio, ServicioReportes, ServicioStock, ServicioTipoCotizacion)
 
 E = TypeVar('E')
 
@@ -44,6 +44,18 @@ def imprimir_tabla(encabezados: Sequence[str],
     for fila in textos:
         print(" | ".join(c.ljust(a) for c, a in zip(fila, anchos)))
     print(f"({len(textos)} registros)")
+
+
+def formatear_importe(valor: Optional[float]) -> str:
+    """Formatea un importe con separador de miles, o '-' si no hay dato.
+
+    Args:
+        valor (Optional[float]): Importe a mostrar.
+
+    Returns:
+        str: El importe con dos decimales, o '-' si es None.
+    """
+    return "-" if valor is None else f"{valor:,.2f}"
 
 
 def pedir_texto(mensaje: str, actual: Optional[str] = None) -> str:
@@ -114,10 +126,9 @@ def menu(titulo: str, opciones: Dict[str, Callable[[], None]]) -> None:
             continue
         try:
             opciones[claves[int(eleccion) - 1]]()
-        except (ValueError, TypeError, ConnectionError) as error:
+        except (ValueError, TypeError, ConnectionError, OSError) as error:
             print(f"Error: {error}")
-        except SQLAlchemyError as error:
-            print(f"Error de base de datos: {error.__class__.__name__}")
+#@title Escritura de console.py (parte 2)
 
 
 class Consola:
@@ -139,10 +150,6 @@ class Consola:
             "Stock": self.menu_stock,
             "Cotizaciones del dólar": self.menu_cotizaciones,
             "Reportes": self.menu_reportes,
-            "Obtener las cotizaciones por API": self.obtener_cotizaciones,
-            "Lista de precios bimonetaria": self.lista_bimonetaria,
-            "Exportar precios a CSV (todas las monedas)":
-                self.exportar_precios,
         })
         print("¡Hasta luego!")
 
@@ -356,7 +363,7 @@ class Consola:
               f"{c.venta:,.2f}") for c in self._s.cotizacion.listar()])
 
     def menu_cotizaciones(self) -> None:
-        """CRUD de cotizaciones y actualización en línea."""
+        """CRUD de cotizaciones y obtención de cotizaciones por API."""
         def alta() -> None:
             cotizacion = CotizacionDolar(
                 elegir("Tipo", self._s.tipo_cotizacion.listar()),
@@ -378,48 +385,17 @@ class Consola:
             else:
                 print("No existe esa cotización.")
 
-        def en_linea() -> None:
-            for cotizacion in self._s.cotizacion.obtener_cotizaciones():
+        def obtener_por_api() -> None:
+            print(f"Consultando {self._s.cotizacion.url_api} ...")
+            registradas = self._s.cotizacion.obtener_cotizaciones()
+            for cotizacion in registradas:
                 print(cotizacion)
+            print(f"{len(registradas)} cotizaciones registradas en la base.")
 
         menu("COTIZACIONES DEL DÓLAR", {
             "Listar": self.listar_cotizaciones, "Alta": alta,
             "Modificar": modificar, "Baja": baja,
-            "Obtener cotizaciones por API": en_linea})
-
-    # ----- Cotizaciones por API y precios bimonetarios -----
-
-    def obtener_cotizaciones(self) -> None:
-        """Descarga las cotizaciones de la API y las guarda en la base."""
-        print("Consultando la API de cotizaciones...")
-        cotizaciones = self._s.cotizacion.obtener_cotizaciones()
-        imprimir_tabla(
-            ["Tipo", "Fecha", "Compra", "Venta"],
-            [(c.tipo, c.fecha.isoformat(), f"{c.compra:,.2f}",
-              f"{c.venta:,.2f}") for c in cotizaciones])
-
-    def lista_bimonetaria(self) -> None:
-        """Precios de los libros en pesos y en dólares del tipo elegido."""
-        tipo = elegir("Moneda (tipo de dólar)",
-                      self._s.tipo_cotizacion.listar())
-        filas = self._s.reportes.lista_bimonetaria(tipo)
-        cotizacion = filas[0].cotizacion if filas else None
-        if cotizacion is None:
-            print(f"No hay cotizaciones del dólar {tipo}. Obténgalas por "
-                  "API o cárguelas manualmente.")
-            return
-        print(f"Cotización usada: {cotizacion}")
-        imprimir_tabla(
-            ["ID", "Título", "Precio ARS", f"Precio USD ({tipo})"],
-            [(f.libro.id, f.libro.titulo,
-              "-" if f.precio_ars is None else f"$ {f.precio_ars:,.2f}",
-              "-" if f.precio_usd is None else f"US$ {f.precio_usd:,.2f}")
-             for f in filas])
-
-    def exportar_precios(self) -> None:
-        """Exporta la lista de precios en todas las monedas a CSV."""
-        ruta = self._s.reportes.exportar_precios_csv()
-        print(f"Precios exportados en: {ruta}")
+            "Obtener cotizaciones por API": obtener_por_api})
 
     # ----- Reportes -----
 
@@ -434,8 +410,7 @@ class Consola:
         imprimir_tabla(
             ["Título", "Precio", "Precio ARS", "Stock", "Subtotal ARS"],
             [(linea.libro.titulo, linea.precio or "-",
-              "-" if linea.precio_ars is None
-              else f"{linea.precio_ars:,.2f}",
+              formatear_importe(linea.precio_ars),
               linea.cantidad, f"{linea.subtotal_ars:,.2f}")
              for linea in lineas])
         total = sum(linea.subtotal_ars for linea in lineas)
@@ -467,13 +442,41 @@ class Consola:
         filas = self._s.reportes.comparar_con_competencia(self._elegir_tipo())
         imprimir_tabla(
             ["Título", "Nuestro ARS", "Cúspide ARS", "Diferencia"],
-            [(f.libro.titulo,
-              "-" if f.precio_propio_ars is None
-              else f"{f.precio_propio_ars:,.2f}",
+            [(f.libro.titulo, formatear_importe(f.precio_propio_ars),
               "no encontrado" if f.precio_competencia_ars is None
               else f"{f.precio_competencia_ars:,.2f}",
               "-" if f.diferencia_porcentual is None
               else f"{f.diferencia_porcentual:+.2f}%") for f in filas])
+
+    def reporte_bimonetario(self) -> None:
+        """Lista de precios en pesos y en otra moneda seleccionada."""
+        monedas = [m for m in self._s.moneda.listar() if m.codigo != "ARS"]
+        if not monedas:
+            print("No hay otras monedas registradas.")
+            return
+        moneda = elegir("Moneda", monedas)
+        tipo = self._elegir_tipo()
+        lineas = self._s.reportes.lista_bimonetaria(moneda, tipo)
+        imprimir_tabla(
+            ["Título", "Precio ARS", f"Precio {moneda.codigo}"],
+            [(linea.libro.titulo, formatear_importe(linea.precio_ars),
+              formatear_importe(linea.precio_moneda)) for linea in lineas])
+        cotizacion = self._s.cotizacion.ultima(tipo.id)
+        if moneda.codigo == "USD" and cotizacion is not None:
+            print(f"Conversión con el dólar {tipo.nombre} del "
+                  f"{cotizacion.fecha.isoformat()} (venta $ "
+                  f"{cotizacion.venta:,.2f}).")
+        elif moneda.codigo != "USD":
+            print(f"Solo se muestran precios registrados en {moneda.codigo}: "
+                  f"el sistema no tiene cotizaciones de esa moneda.")
+
+    def reporte_exportar(self) -> None:
+        """Exporta los precios de todos los libros a un archivo CSV."""
+        tipo = self._elegir_tipo()
+        ruta = Path(pedir_texto("Archivo de destino", str(RUTA_EXPORTACION)))
+        cantidad = self._s.reportes.exportar_precios_csv(
+            ruta, self._s.moneda.listar(), tipo)
+        print(f"Se exportaron los precios de {cantidad} libros a {ruta}.")
 
     def menu_reportes(self) -> None:
         """Menú de reportes."""
@@ -481,4 +484,6 @@ class Consola:
             "Inventario valorizado en pesos": self.reporte_inventario,
             "Libros para reponer": self.reporte_reposicion,
             "Histórico de cotizaciones": self.reporte_historico,
-            "Comparación de precios con Cúspide": self.reporte_competencia})
+            "Comparación de precios con Cúspide": self.reporte_competencia,
+            "Lista de precios bimonetaria": self.reporte_bimonetario,
+            "Exportar precios a CSV": self.reporte_exportar})
