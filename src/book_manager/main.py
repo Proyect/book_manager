@@ -68,11 +68,13 @@ def main(import_default_data: bool = True,
     """Inicia la aplicación de consola.
 
     Args:
-        import_default_data (bool): Si es True, recrea la base con los
-            datos de migrations/csv. Si es False, usa la base existente;
-            si la base no existe o está vacía, igual importa los datos.
+        import_default_data (bool): Si es True, recrea la base y la carga
+            con los archivos .sql de migrations/sql. Si es False, usa la
+            base existente; si la base no existe o está vacía, igual
+            importa los datos.
         conexion_db (Optional[ConexionDB]): Conexión a usar. Si es None,
-            se usa la base SQLite del proyecto y se cierra al salir.
+            se usa la base configurada en el .env (o la SQLite local) y se
+            cierra al salir.
     """
     conexion_propia: bool = conexion_db is None
     conexion: ConexionDB = ConexionDB() if conexion_propia else conexion_db

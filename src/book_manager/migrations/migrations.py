@@ -1,10 +1,11 @@
 #@title Escritura de migrations.py
 """Migración de los datos del Sprint 1 a la base de datos.
 
-Lee los CSV de migrations/csv, genera en migrations/sql un archivo .sql por
-tabla con las sentencias de inserción y puebla la base ejecutando esos
-archivos, en orden de dependencias y dentro de una sola transacción. Funciona
-sobre SQLite y sobre PostgreSQL (Supabase).
+Lee los CSV de migrations/csv y genera en migrations/sql un archivo .sql por
+tabla con las sentencias de inserción. Ofrece además la ejecución de un
+archivo .sql sobre una conexión y el ajuste de las secuencias de ids, que
+usa la carga de datos de preload_data. Funciona sobre SQLite y sobre
+PostgreSQL (Supabase).
 """
 import csv
 from pathlib import Path
@@ -12,8 +13,6 @@ from typing import Dict, FrozenSet, List, Tuple
 
 from sqlalchemy.engine import Connection
 from sqlalchemy.sql import text
-
-from book_manager.database.connection import ConexionDB
 
 
 class TablaMigracion:
@@ -248,7 +247,31 @@ def _leer_sentencias(ruta: Path) -> List[str]:
         ]
 
 
-def _ajustar_secuencias(conexion: Connection) -> None:
+def ejecutar_archivo_sql(conexion: Connection, ruta: Path) -> int:
+    """Ejecuta las sentencias de un archivo .sql sobre una conexión abierta.
+
+    Los dos puntos de los datos se escapan para que text() no los tome como
+    parámetros. La transacción la maneja quien llama.
+
+    Args:
+        conexion (Connection): Conexión de la transacción en curso.
+        ruta (Path): Ruta del archivo .sql (una sentencia por línea).
+
+    Returns:
+        int: Cantidad de sentencias ejecutadas.
+
+    Raises:
+        FileNotFoundError: Si el archivo no existe.
+    """
+    if not ruta.is_file():
+        raise FileNotFoundError(f"No se encontró el archivo {ruta}.")
+    sentencias: List[str] = _leer_sentencias(ruta)
+    for sentencia in sentencias:
+        conexion.execute(text(sentencia.replace(":", "\\:")))
+    return len(sentencias)
+
+
+def ajustar_secuencias(conexion: Connection) -> None:
     """Ajusta los contadores de ids de PostgreSQL al id máximo + 1.
 
     Los INSERT de la migración incluyen el id, y eso no avanza la columna
@@ -267,49 +290,3 @@ def _ajustar_secuencias(conexion: Connection) -> None:
                 f"'id'), COALESCE(MAX(id), 0) + 1, false) "
                 f"FROM {config.tabla}"
             ))
-
-
-def ejecutar_migraciones(conexion_db: ConexionDB,
-                         carpeta_sqls: str) -> Dict[str, int]:
-    """Puebla la base ejecutando los archivos .sql en orden.
-
-    Todas las inserciones se hacen en una sola transacción: si una falla,
-    se deshacen todas. Las tablas deben existir y estar vacías. Los dos
-    puntos de los datos se escapan para que text() no los tome como
-    parámetros.
-
-    Args:
-        conexion_db (ConexionDB): Conexión a la base de datos.
-        carpeta_sqls (str): Carpeta con los archivos .sql generados.
-
-    Returns:
-        Dict[str, int]: Cantidad de registros insertados por tabla.
-
-    Raises:
-        TypeError: Si conexion_db no es una ConexionDB.
-        FileNotFoundError: Si falta alguno de los archivos .sql.
-        sqlalchemy.exc.IntegrityError: Si algún registro viola una
-            restricción del esquema (por ejemplo, si ya hay datos).
-    """
-    if not isinstance(conexion_db, ConexionDB):
-        raise TypeError("La migración requiere una ConexionDB.")
-    carpeta: Path = Path(carpeta_sqls)
-    archivos: List[Path] = [
-        carpeta / nombre_archivo_sql(posicion, config.tabla)
-        for posicion, config in enumerate(TABLAS_MIGRACION, start=1)
-    ]
-    faltantes: List[str] = [a.name for a in archivos if not a.exists()]
-    if faltantes:
-        raise FileNotFoundError(
-            f"Faltan archivos de migración en {carpeta}: {faltantes}."
-        )
-
-    resumen: Dict[str, int] = {}
-    with conexion_db.transaccion() as conexion:
-        for config, archivo in zip(TABLAS_MIGRACION, archivos):
-            sentencias: List[str] = _leer_sentencias(archivo)
-            for sentencia in sentencias:
-                conexion.execute(text(sentencia.replace(":", "\\:")))
-            resumen[config.tabla] = len(sentencias)
-        _ajustar_secuencias(conexion)
-    return resumen

@@ -1,10 +1,12 @@
 #@title Escritura de preload_data.py
-"""Carga inicial de datos en la base desde los CSV de migrations/csv.
+"""Carga inicial de datos en la base desde los archivos .sql de migración.
 
-Recrea el esquema, genera los archivos .sql de migración, los ejecuta y
-valida cada registro leyéndolo con las entidades del sistema. La ejecución
-y la validación forman una única transacción: si algún registro no pasa las
-validaciones de las entidades, la base queda sin datos migrados.
+Recrea el esquema, carga los datos desde los archivos .sql de
+migrations/sql (opcionalmente, regenerándolos antes desde los CSV de
+migrations/csv) y valida cada registro leyéndolo con las entidades del
+sistema. La carga y la validación forman una única transacción: si algún
+registro no pasa las validaciones de las entidades, la base queda sin datos
+migrados.
 """
 
 from pathlib import Path
@@ -14,7 +16,8 @@ from sqlalchemy.sql import text
 
 from book_manager.database.connection import ConexionDB
 from book_manager.migrations.migrations import (
-    ejecutar_migraciones, migrar_datos)
+    TABLAS_MIGRACION, ajustar_secuencias, ejecutar_archivo_sql, migrar_datos,
+    nombre_archivo_sql)
 from book_manager.models.models import EsquemaDB
 from book_manager.repositories.repositories import (
     RepositorioCotizacionDolar, RepositorioEditorial, RepositorioGenero,
@@ -56,15 +59,81 @@ def _validar_con_entidades(conexion_db: ConexionDB) -> None:
         repositorio.leer_todos()
 
 
+def _tabla_de_archivo(ruta: Path) -> str:
+    """Nombre de la tabla de un archivo .sql de migración.
+
+    Args:
+        ruta (Path): Archivo con el formato NN_tabla.sql (ej. 05_libros.sql).
+
+    Returns:
+        str: Nombre de la tabla (ej. 'libros').
+    """
+    prefijo, _, resto = ruta.stem.partition("_")
+    return resto if prefijo.isdigit() and resto else ruta.stem
+
+
+def cargar_datos_desde_sql(conexion_db: ConexionDB,
+                           ruta_sql: Path = DIRECTORIO_SQL) -> Dict[str, int]:
+    """Carga en la base los datos de uno o varios archivos .sql.
+
+    Si la ruta es una carpeta, se ejecutan los archivos de migración en el
+    orden de dependencias de las tablas (los que existan); si es un archivo,
+    solo ese. Todo se ejecuta en una sola transacción: si una sentencia
+    falla, no queda nada cargado. Las tablas deben existir.
+
+    Args:
+        conexion_db (ConexionDB): Conexión a la base de datos.
+        ruta_sql (Path): Archivo .sql o carpeta con los archivos .sql (por
+            defecto, migrations/sql).
+
+    Returns:
+        Dict[str, int]: Cantidad de registros cargados por tabla.
+
+    Raises:
+        TypeError: Si conexion_db no es una ConexionDB.
+        FileNotFoundError: Si la ruta no existe o la carpeta no tiene
+            archivos .sql de migración.
+    """
+    if not isinstance(conexion_db, ConexionDB):
+        raise TypeError("La carga requiere una ConexionDB.")
+    ruta: Path = Path(ruta_sql)
+    if ruta.is_dir():
+        archivos: List[Path] = [
+            ruta / nombre_archivo_sql(posicion, config.tabla)
+            for posicion, config in enumerate(TABLAS_MIGRACION, start=1)
+            if (ruta / nombre_archivo_sql(posicion, config.tabla)).is_file()
+        ]
+        if not archivos:
+            raise FileNotFoundError(
+                f"La carpeta {ruta} no tiene archivos .sql de migración."
+            )
+    elif ruta.is_file():
+        archivos = [ruta]
+    else:
+        raise FileNotFoundError(f"No existe {ruta}.")
+
+    resumen: Dict[str, int] = {}
+    with conexion_db.transaccion() as conexion:
+        for archivo in archivos:
+            resumen[_tabla_de_archivo(archivo)] = ejecutar_archivo_sql(
+                conexion, archivo
+            )
+        ajustar_secuencias(conexion)
+    return resumen
+
+
 def importar_datos(conexion_db: ConexionDB,
                    carpeta_csv: Path = DIRECTORIO_CSV,
-                   carpeta_sql: Path = DIRECTORIO_SQL) -> Dict[str, int]:
-    """Recrea la base y la puebla con los datos de migración.
+                   carpeta_sql: Path = DIRECTORIO_SQL,
+                   regenerar_sql: bool = False) -> Dict[str, int]:
+    """Recrea la base y la puebla con los datos de los archivos .sql.
 
     Args:
         conexion_db (ConexionDB): Conexión a la base de datos.
         carpeta_csv (Path): Carpeta con los CSV de migración.
-        carpeta_sql (Path): Carpeta donde se generan los archivos .sql.
+        carpeta_sql (Path): Carpeta con los archivos .sql de migración.
+        regenerar_sql (bool): Si es True, antes de cargar se vuelven a
+            generar los archivos .sql desde los CSV.
 
     Returns:
         Dict[str, int]: Cantidad de registros importados por tabla.
@@ -78,10 +147,11 @@ def importar_datos(conexion_db: ConexionDB,
     esquema = EsquemaDB(conexion_db)
     esquema.eliminar_tablas()
     esquema.crear_tablas()
-    migrar_datos(str(carpeta_csv), str(carpeta_sql))
+    if regenerar_sql or not any(Path(carpeta_sql).glob("*.sql")):
+        migrar_datos(str(carpeta_csv), str(carpeta_sql))
     with conexion_db.transaccion():
-        resumen: Dict[str, int] = ejecutar_migraciones(
-            conexion_db, str(carpeta_sql)
+        resumen: Dict[str, int] = cargar_datos_desde_sql(
+            conexion_db, carpeta_sql
         )
         _validar_con_entidades(conexion_db)
     return resumen

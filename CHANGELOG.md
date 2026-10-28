@@ -4,6 +4,11 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 3
 
+[Ejercicio 02]
+- Función `cargar_datos_desde_sql(conexion_db, ruta_sql)` en `preload_data.py`: carga en la base los datos de un archivo `.sql` o de todos los archivos de migración de una carpeta (en orden de dependencias), en una sola transacción, y ajusta las secuencias de ids en PostgreSQL.
+- `importar_datos` recrea el esquema y carga los datos desde los `.sql` de `migrations/sql`; los regenera desde los CSV solo si se pide (`regenerar_sql=True`) o si no existen.
+- `migrations.py`: funciones públicas `ejecutar_archivo_sql` y `ajustar_secuencias`; se elimina `ejecutar_migraciones`, reemplazada por `cargar_datos_desde_sql` (sin código duplicado).
+
 [Ejercicio 01]
 - Creación de la rama `Sprint_3` a partir de `Sprint_2`.
 - Nuevas carpetas `scraper` (proyecto Scrapy) y `reportes` (alertas CSV y reportes Excel generados, excluidos del repositorio en `.gitignore`).
