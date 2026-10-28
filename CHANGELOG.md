@@ -4,6 +4,11 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 3
 
+[Ejercicio 05]
+- `ServicioReportes.generar_reporte_excel(tipo)`: reporte en Excel (openpyxl) en `reportes/reporte_precios_AAAAMMDD_HHMMSS.xlsx` con una fila por libro y los campos Libro, Precio interno, Precio web, Diferencia y Fecha de extracción.
+- Formato del reporte: encabezado destacado, importes en pesos, fecha y hora de extracción, anchos de columna, fila de encabezado fija y filtros.
+- Los libros que no se encontraron en la web quedan con el precio web, la diferencia y la fecha vacíos.
+
 [Ejercicio 04]
 - `ServicioReportes.ejecutar_scraping(umbral_porcentaje, tipo)`: ejecuta el scraper, compara el precio interno con el precio web de cada libro y, en cada ejecución, genera en `reportes/` un archivo CSV de alertas (`alertas_precios_AAAAMMDD_HHMMSS.csv`) con los libros cuya diferencia, en valor absoluto, es igual o mayor que la ingresada por el usuario.
 - El CSV de alertas informa ISBN, libro, precio interno, precio web, diferencia en pesos y en %, umbral usado, tipo de alerta (precio interno mayor o menor al web), URL y fecha de extracción.

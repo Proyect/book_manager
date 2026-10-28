@@ -7,7 +7,7 @@ persistencia en los repositorios. Las operaciones que modifican varias
 tablas se ejecutan en una única transacción de la base de datos. La URL de
 la API de cotizaciones se lee del archivo .env con python-dotenv. El
 scraping de precios de la competencia se ejecuta con la araña de Scrapy del
-paquete scraper.
+paquete scraper y los reportes de precios se generan en Excel con openpyxl.
 """
 
 import copy
@@ -24,6 +24,8 @@ from typing import Any, Dict, Generic, List, Optional, TypeVar
 
 import requests
 from dotenv import dotenv_values
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 
 from book_manager.database.connection import ConexionDB
 from book_manager.entities.entities import (
@@ -43,6 +45,12 @@ RUTA_EXPORTACION: Path = (
     / "precios.csv"
 )
 RUTA_REPORTES: Path = Path(__file__).resolve().parent.parent / "reportes"
+FORMATO_IMPORTE: str = '"$" #,##0.00'
+FORMATO_FECHA_HORA: str = "dd/mm/yyyy hh:mm"
+COLUMNAS_REPORTE_EXCEL: List[str] = [
+    "Libro", "Precio interno", "Precio web", "Diferencia",
+    "Fecha de extracción"]
+ANCHOS_REPORTE_EXCEL: List[int] = [45, 16, 16, 16, 20]
 TIMEOUT_SEGUNDOS = 10
 DIRECTORIO_SRC: Path = Path(__file__).resolve().parents[2]
 MODULO_ARANA: str = "book_manager.scraper.ejecutar"
@@ -1048,4 +1056,44 @@ class ServicioReportes:
                     else "Precio interno menor al web",
                     alerta.precio_web.url,
                     alerta.fecha_extraccion.isoformat(sep=" ")])
+        return ruta
+
+    def generar_reporte_excel(self, tipo: TipoCotizacion) -> Path:
+        """Genera el reporte en Excel de precios internos y web.
+
+        Una fila por libro con el libro, el precio interno, el precio web,
+        la diferencia (precio interno menos precio web) y la fecha de
+        extracción del precio web. Los libros que no se encontraron en la
+        web quedan con esas celdas vacías.
+
+        Args:
+            tipo (TipoCotizacion): Tipo de cotización para convertir USD.
+
+        Returns:
+            Path: Ruta del archivo .xlsx generado en la carpeta de reportes.
+        """
+        libro_excel = Workbook()
+        hoja = libro_excel.active
+        hoja.title = "Precios"
+        hoja.append(COLUMNAS_REPORTE_EXCEL)
+        for celda in hoja[1]:
+            celda.font = Font(bold=True, color="FFFFFF")
+            celda.fill = PatternFill("solid", fgColor="305496")
+            celda.alignment = Alignment(horizontal="center")
+        for comparacion in self.comparar_con_competencia(tipo):
+            hoja.append([comparacion.libro.titulo,
+                         comparacion.precio_propio_ars,
+                         comparacion.precio_competencia_ars,
+                         comparacion.diferencia,
+                         comparacion.fecha_extraccion])
+        for fila in hoja.iter_rows(min_row=2):
+            for celda in fila[1:4]:
+                celda.number_format = FORMATO_IMPORTE
+            fila[4].number_format = FORMATO_FECHA_HORA
+        for columna, ancho in zip("ABCDE", ANCHOS_REPORTE_EXCEL):
+            hoja.column_dimensions[columna].width = ancho
+        hoja.freeze_panes = "A2"
+        hoja.auto_filter.ref = hoja.dimensions
+        ruta: Path = self._ruta_reporte("reporte_precios", "xlsx")
+        libro_excel.save(ruta)
         return ruta
