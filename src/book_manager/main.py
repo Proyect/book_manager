@@ -10,7 +10,9 @@ auditoría.
 
 from typing import Dict, Optional
 
-from book_manager.database.connection import ConexionDB
+from sqlalchemy.exc import OperationalError
+
+from book_manager.database.connection import URL_POR_DEFECTO, ConexionDB
 from book_manager.models.models import EsquemaDB
 from book_manager.preload_data.preload_data import hay_datos, importar_datos
 from book_manager.repositories.repositories import (
@@ -74,6 +76,27 @@ def crear_servicios(conexion_db: ConexionDB,
     return servicios
 
 
+def conectar_base() -> ConexionDB:
+    """Conecta con la base del .env o, si no responde, con la SQLite local.
+
+    Returns:
+        ConexionDB: Conexión a la base configurada en el .env (Supabase);
+        si no se puede conectar (por ejemplo, el proyecto de Supabase no
+        existe más), a la base SQLite local del proyecto.
+    """
+    conexion: ConexionDB = ConexionDB()
+    if conexion.dialecto == "sqlite":
+        return conexion
+    try:
+        EsquemaDB(conexion).tablas_existentes()
+    except OperationalError:
+        print(f"No se pudo conectar a la base {conexion.url}; se usa la "
+              f"base SQLite local.")
+        conexion.cerrar()
+        return ConexionDB(URL_POR_DEFECTO)
+    return conexion
+
+
 def main(import_default_data: bool = True,
          conexion_db: Optional[ConexionDB] = None) -> None:
     """Inicia la aplicación de consola.
@@ -84,11 +107,11 @@ def main(import_default_data: bool = True,
             base existente; si la base no existe o está vacía, igual
             importa los datos.
         conexion_db (Optional[ConexionDB]): Conexión a usar. Si es None,
-            se usa la base configurada en el .env (o la SQLite local) y se
-            cierra al salir.
+            se usa la base configurada en el .env (o la SQLite local, si
+            aquella no responde) y se cierra al salir.
     """
     conexion_propia: bool = conexion_db is None
-    conexion: ConexionDB = ConexionDB() if conexion_propia else conexion_db
+    conexion: ConexionDB = conectar_base() if conexion_propia else conexion_db
     try:
         resumen: Optional[Dict[str, int]] = None
         if import_default_data or not hay_datos(conexion):
