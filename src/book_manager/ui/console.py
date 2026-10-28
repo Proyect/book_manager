@@ -10,7 +10,7 @@ from book_manager.entities.entities import (
     CotizacionDolar, Editorial, Genero, Libro, Moneda, Precio, Stock,
     TipoCotizacion)
 from book_manager.services.services import (
-    RUTA_EXPORTACION, ServicioCotizacionDolar, ServicioCRUD,
+    RUTA_EXPORTACION, ServicioAuditoria, ServicioCotizacionDolar, ServicioCRUD,
     ServicioEditorial, ServicioGenero, ServicioLibro, ServicioMoneda,
     ServicioPrecio, ServicioReportes, ServicioScraping, ServicioStock,
     ServicioTipoCotizacion)
@@ -32,6 +32,7 @@ class Servicios:
     cotizacion: ServicioCotizacionDolar
     reportes: ServicioReportes
     scraping: ServicioScraping
+    auditoria: ServicioAuditoria
 
 
 def imprimir_tabla(encabezados: Sequence[str],

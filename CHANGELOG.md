@@ -4,6 +4,13 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 3
 
+[Ejercicio 06]
+- Decorador `auditar(accion)` en `services.py`: registra cada operación de los servicios en la tabla de auditoría con la acción, la fecha y los detalles (argumentos y resultado); si la operación falla registra la acción con `(ERROR)` y el mensaje, y propaga la excepción.
+- Cuando una operación auditada llama a otra (por ejemplo, el alta de un libro valida con el listado), solo se registra la operación externa.
+- Entidad `Auditoria`, tabla `auditoria` (`AuditoriaModel`), `RepositorioAuditoria` (con los últimos registros) y `ServicioAuditoria` (registrar, listar e historial).
+- Clase base `ServicioAuditable`: todos los servicios auditan sus operaciones (consultas, altas, modificaciones, bajas, ingresos y ventas de stock, cotizaciones por API, scraping, reportes y exportaciones), con el nombre de la entidad en la acción (ej. `ALTA Libro`).
+- `crear_servicios` asigna la auditoría a todos los servicios y `main` registra la importación de los datos iniciales.
+
 [Ejercicio 05]
 - `ServicioReportes.generar_reporte_excel(tipo)`: reporte en Excel (openpyxl) en `reportes/reporte_precios_AAAAMMDD_HHMMSS.xlsx` con una fila por libro y los campos Libro, Precio interno, Precio web, Diferencia y Fecha de extracción.
 - Formato del reporte: encabezado destacado, importes en pesos, fecha y hora de extracción, anchos de columna, fila de encabezado fija y filtros.

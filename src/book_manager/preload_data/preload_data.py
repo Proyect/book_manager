@@ -20,8 +20,8 @@ from book_manager.migrations.migrations import (
     nombre_archivo_sql)
 from book_manager.models.models import EsquemaDB
 from book_manager.repositories.repositories import (
-    RepositorioCotizacionDolar, RepositorioEditorial, RepositorioGenero,
-    RepositorioLibro, RepositorioMoneda, RepositorioPrecio,
+    RepositorioAuditoria, RepositorioCotizacionDolar, RepositorioEditorial,
+    RepositorioGenero, RepositorioLibro, RepositorioMoneda, RepositorioPrecio,
     RepositorioPrecioWeb, RepositorioStock, RepositorioTipoCotizacion)
 
 DIRECTORIO_MIGRACIONES: Path = (
@@ -55,6 +55,7 @@ def _validar_con_entidades(conexion_db: ConexionDB) -> None:
         RepositorioStock(conexion_db, repo_libro),
         RepositorioCotizacionDolar(conexion_db, repo_tipo),
         RepositorioPrecioWeb(conexion_db, repo_libro),
+        RepositorioAuditoria(conexion_db),
     ]
     for repositorio in repositorios:
         repositorio.leer_todos()
