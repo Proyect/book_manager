@@ -1,34 +1,21 @@
 #@title Escritura de models.py
-"""Esquema relacional de Book Manager.
+"""Modelos (tablas) del esquema relacional de Book Manager.
 
-Define las sentencias de creación de las tablas del sistema, con sus tipos
-de datos, claves primarias, claves foráneas y restricciones, y la clase
-EsquemaDB, que las crea y las elimina en la base. Siguiendo el material de
-la cátedra, no se usan modelos declarativos: el esquema se escribe en SQL y
-se ejecuta con text(). Las sentencias se adaptan al motor (SQLite para las
-pruebas, PostgreSQL en Supabase para el sistema).
+Cada clase *Model representa una tabla del sistema: su nombre, sus columnas
+con tipos de datos, claves primarias, claves foráneas y restricciones, y sus
+índices. Siguiendo el material de la cátedra, no se usan modelos
+declarativos: el esquema se escribe en SQL y se ejecuta con text(). Las
+sentencias se adaptan al motor (SQLite para las pruebas, PostgreSQL en
+Supabase para el sistema). La clase EsquemaDB crea y elimina las tablas en
+la base.
 """
-from typing import Dict, List
+import abc
+from typing import Dict, List, Tuple, Type
 
 from sqlalchemy.engine import Connection
 from sqlalchemy.sql import text
 
 from book_manager.database.connection import ConexionDB
-
-# Orden de creación: primero las tablas sin dependencias, después las que
-# las referencian. Las tablas se eliminan en el orden inverso.
-NOMBRES_TABLAS: List[str] = [
-    "generos", "editoriales", "monedas", "tipos_cotizacion", "libros",
-    "precios", "stock", "cotizaciones_dolar",
-]
-
-# Unicidad de nombres sin distinguir mayúsculas, válida en los dos motores.
-SENTENCIAS_INDICES: List[str] = [
-    "CREATE UNIQUE INDEX IF NOT EXISTS ux_generos_nombre "
-    "ON generos (lower(nombre))",
-    "CREATE UNIQUE INDEX IF NOT EXISTS ux_tipos_cotizacion_nombre "
-    "ON tipos_cotizacion (lower(nombre))",
-]
 
 
 def _columna_id(dialecto: str) -> str:
@@ -45,6 +32,217 @@ def _columna_id(dialecto: str) -> str:
     return "id INTEGER NOT NULL"
 
 
+class ModeloTabla(abc.ABC):
+    """Base de los modelos: una tabla del esquema y sus índices.
+
+    Cada subclase define NOMBRE (nombre de la tabla), COLUMNAS (columnas y
+    restricciones en SQL; {id} se reemplaza por la columna id del motor) e
+    INDICES (sentencias CREATE INDEX opcionales).
+    """
+
+    NOMBRE: str = ""
+    COLUMNAS: str = ""
+    INDICES: Tuple[str, ...] = ()
+
+    @classmethod
+    def sentencia_creacion(cls, dialecto: str) -> str:
+        """Sentencia CREATE TABLE de la tabla para un motor.
+
+        Args:
+            dialecto (str): Nombre del motor ('sqlite' o 'postgresql').
+
+        Returns:
+            str: Sentencia CREATE TABLE IF NOT EXISTS.
+        """
+        columnas: str = cls.COLUMNAS.format(id=_columna_id(dialecto))
+        return f"CREATE TABLE IF NOT EXISTS {cls.NOMBRE} ({columnas})"
+
+    @classmethod
+    def sentencia_eliminacion(cls) -> str:
+        """Sentencia DROP TABLE de la tabla (elimina también sus índices)."""
+        return f"DROP TABLE IF EXISTS {cls.NOMBRE}"
+
+
+class GeneroModel(ModeloTabla):
+    """Tabla generos: categorías literarias."""
+
+    NOMBRE = "generos"
+    COLUMNAS = """
+        {id},
+        nombre VARCHAR(100) NOT NULL,
+        descripcion VARCHAR(255) NOT NULL DEFAULT '',
+        PRIMARY KEY (id),
+        CHECK (length(trim(nombre)) > 0)
+    """
+    INDICES = ("CREATE UNIQUE INDEX IF NOT EXISTS ux_generos_nombre "
+               "ON generos (lower(nombre))",)
+
+
+class EditorialModel(ModeloTabla):
+    """Tabla editoriales: proveedores de los libros."""
+
+    NOMBRE = "editoriales"
+    COLUMNAS = """
+        {id},
+        nombre VARCHAR(150) NOT NULL,
+        cuit VARCHAR(11) NOT NULL,
+        condicion_iva VARCHAR(30) NOT NULL,
+        direccion VARCHAR(255) NOT NULL DEFAULT '',
+        email VARCHAR(150) NOT NULL DEFAULT '',
+        telefono VARCHAR(50) NOT NULL DEFAULT '',
+        PRIMARY KEY (id),
+        UNIQUE (cuit),
+        CHECK (length(trim(nombre)) > 0),
+        CHECK (length(cuit) = 11),
+        CHECK (condicion_iva IN ('Responsable Inscripto', 'Monotributista',
+                                 'Exento', 'Consumidor Final'))
+    """
+
+
+class MonedaModel(ModeloTabla):
+    """Tabla monedas: monedas en las que se expresan los precios."""
+
+    NOMBRE = "monedas"
+    COLUMNAS = """
+        {id},
+        codigo VARCHAR(3) NOT NULL,
+        nombre VARCHAR(100) NOT NULL,
+        simbolo VARCHAR(10) NOT NULL DEFAULT '',
+        PRIMARY KEY (id),
+        UNIQUE (codigo),
+        CHECK (length(codigo) = 3),
+        CHECK (length(trim(nombre)) > 0)
+    """
+
+
+class TipoCotizacionModel(ModeloTabla):
+    """Tabla tipos_cotizacion: tipos de cotización del dólar."""
+
+    NOMBRE = "tipos_cotizacion"
+    COLUMNAS = """
+        {id},
+        nombre VARCHAR(50) NOT NULL,
+        descripcion VARCHAR(255) NOT NULL DEFAULT '',
+        PRIMARY KEY (id),
+        CHECK (length(trim(nombre)) > 0)
+    """
+    INDICES = ("CREATE UNIQUE INDEX IF NOT EXISTS ux_tipos_cotizacion_nombre "
+               "ON tipos_cotizacion (lower(nombre))",)
+
+
+class LibroModel(ModeloTabla):
+    """Tabla libros: catálogo (relacionada con editoriales y generos)."""
+
+    NOMBRE = "libros"
+    COLUMNAS = """
+        {id},
+        isbn VARCHAR(13) NOT NULL,
+        titulo VARCHAR(255) NOT NULL,
+        autor VARCHAR(255) NOT NULL,
+        editorial_id INTEGER NOT NULL,
+        genero_id INTEGER NOT NULL,
+        fecha_impresion DATE NOT NULL,
+        numero_impresion INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (id),
+        UNIQUE (isbn),
+        CHECK (length(isbn) IN (10, 13)),
+        CHECK (numero_impresion >= 1),
+        FOREIGN KEY (editorial_id) REFERENCES editoriales (id),
+        FOREIGN KEY (genero_id) REFERENCES generos (id)
+    """
+
+
+class PrecioModel(ModeloTabla):
+    """Tabla precios: valor de un libro en una moneda y fecha."""
+
+    NOMBRE = "precios"
+    COLUMNAS = """
+        {id},
+        libro_id INTEGER NOT NULL,
+        moneda_id INTEGER NOT NULL,
+        valor DECIMAL(12, 2) NOT NULL,
+        fecha DATE NOT NULL,
+        PRIMARY KEY (id),
+        UNIQUE (libro_id, moneda_id, fecha),
+        CHECK (valor >= 0),
+        FOREIGN KEY (libro_id) REFERENCES libros (id),
+        FOREIGN KEY (moneda_id) REFERENCES monedas (id)
+    """
+
+
+class StockModel(ModeloTabla):
+    """Tabla stock: unidades disponibles de cada libro."""
+
+    NOMBRE = "stock"
+    COLUMNAS = """
+        libro_id INTEGER NOT NULL,
+        cantidad INTEGER NOT NULL DEFAULT 0,
+        stock_minimo INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (libro_id),
+        CHECK (cantidad >= 0),
+        CHECK (stock_minimo >= 0),
+        FOREIGN KEY (libro_id) REFERENCES libros (id)
+    """
+
+
+class CotizacionDolarModel(ModeloTabla):
+    """Tabla cotizaciones_dolar: histórico por tipo y fecha."""
+
+    NOMBRE = "cotizaciones_dolar"
+    COLUMNAS = """
+        tipo_id INTEGER NOT NULL,
+        fecha DATE NOT NULL,
+        compra DECIMAL(12, 2) NOT NULL,
+        venta DECIMAL(12, 2) NOT NULL,
+        PRIMARY KEY (tipo_id, fecha),
+        CHECK (compra > 0),
+        CHECK (venta >= compra),
+        FOREIGN KEY (tipo_id) REFERENCES tipos_cotizacion (id)
+    """
+
+
+class PrecioWebModel(ModeloTabla):
+    """Tabla precios_web: resultados del scraper de la competencia.
+
+    Cada fila es uno de los resultados de la búsqueda de un libro del
+    catálogo en el sitio de la competencia. Si se borra el libro, se borran
+    sus resultados (ON DELETE CASCADE).
+    """
+
+    NOMBRE = "precios_web"
+    COLUMNAS = """
+        {id},
+        libro_id INTEGER NOT NULL,
+        posicion INTEGER NOT NULL,
+        titulo VARCHAR(255) NOT NULL,
+        autor VARCHAR(255) NOT NULL DEFAULT '',
+        isbn VARCHAR(20) NOT NULL DEFAULT '',
+        precio DECIMAL(12, 2) NOT NULL,
+        precio_usd DECIMAL(12, 2),
+        url VARCHAR(500) NOT NULL,
+        url_imagen VARCHAR(500) NOT NULL DEFAULT '',
+        formas_pago TEXT NOT NULL DEFAULT '',
+        descripcion TEXT NOT NULL DEFAULT '',
+        fecha_extraccion TIMESTAMP NOT NULL,
+        PRIMARY KEY (id),
+        CHECK (posicion >= 1),
+        CHECK (precio >= 0),
+        FOREIGN KEY (libro_id) REFERENCES libros (id) ON DELETE CASCADE
+    """
+    INDICES = ("CREATE INDEX IF NOT EXISTS ix_precios_web_libro_fecha "
+               "ON precios_web (libro_id, fecha_extraccion)",)
+
+
+# Orden de creación: primero las tablas sin dependencias, después las que
+# las referencian. Las tablas se eliminan en el orden inverso.
+MODELOS: List[Type[ModeloTabla]] = [
+    GeneroModel, EditorialModel, MonedaModel, TipoCotizacionModel,
+    LibroModel, PrecioModel, StockModel, CotizacionDolarModel,
+    PrecioWebModel,
+]
+NOMBRES_TABLAS: List[str] = [modelo.NOMBRE for modelo in MODELOS]
+
+
 def sentencias_creacion(dialecto: str) -> Dict[str, str]:
     """Sentencias CREATE TABLE del sistema para un motor.
 
@@ -54,112 +252,8 @@ def sentencias_creacion(dialecto: str) -> Dict[str, str]:
     Returns:
         Dict[str, str]: Sentencia de cada tabla, en orden de creación.
     """
-    id_auto: str = _columna_id(dialecto)
-    return {
-        "generos": f"""
-            CREATE TABLE IF NOT EXISTS generos (
-                {id_auto},
-                nombre VARCHAR(100) NOT NULL,
-                descripcion VARCHAR(255) NOT NULL DEFAULT '',
-                PRIMARY KEY (id),
-                CHECK (length(trim(nombre)) > 0)
-            )
-        """,
-        "editoriales": f"""
-            CREATE TABLE IF NOT EXISTS editoriales (
-                {id_auto},
-                nombre VARCHAR(150) NOT NULL,
-                cuit VARCHAR(11) NOT NULL,
-                condicion_iva VARCHAR(30) NOT NULL,
-                direccion VARCHAR(255) NOT NULL DEFAULT '',
-                email VARCHAR(150) NOT NULL DEFAULT '',
-                telefono VARCHAR(50) NOT NULL DEFAULT '',
-                PRIMARY KEY (id),
-                UNIQUE (cuit),
-                CHECK (length(trim(nombre)) > 0),
-                CHECK (length(cuit) = 11),
-                CHECK (condicion_iva IN ('Responsable Inscripto',
-                                         'Monotributista', 'Exento',
-                                         'Consumidor Final'))
-            )
-        """,
-        "monedas": f"""
-            CREATE TABLE IF NOT EXISTS monedas (
-                {id_auto},
-                codigo VARCHAR(3) NOT NULL,
-                nombre VARCHAR(100) NOT NULL,
-                simbolo VARCHAR(10) NOT NULL DEFAULT '',
-                PRIMARY KEY (id),
-                UNIQUE (codigo),
-                CHECK (length(codigo) = 3),
-                CHECK (length(trim(nombre)) > 0)
-            )
-        """,
-        "tipos_cotizacion": f"""
-            CREATE TABLE IF NOT EXISTS tipos_cotizacion (
-                {id_auto},
-                nombre VARCHAR(50) NOT NULL,
-                descripcion VARCHAR(255) NOT NULL DEFAULT '',
-                PRIMARY KEY (id),
-                CHECK (length(trim(nombre)) > 0)
-            )
-        """,
-        "libros": f"""
-            CREATE TABLE IF NOT EXISTS libros (
-                {id_auto},
-                isbn VARCHAR(13) NOT NULL,
-                titulo VARCHAR(255) NOT NULL,
-                autor VARCHAR(255) NOT NULL,
-                editorial_id INTEGER NOT NULL,
-                genero_id INTEGER NOT NULL,
-                fecha_impresion DATE NOT NULL,
-                numero_impresion INTEGER NOT NULL DEFAULT 1,
-                PRIMARY KEY (id),
-                UNIQUE (isbn),
-                CHECK (length(isbn) IN (10, 13)),
-                CHECK (numero_impresion >= 1),
-                FOREIGN KEY (editorial_id) REFERENCES editoriales (id),
-                FOREIGN KEY (genero_id) REFERENCES generos (id)
-            )
-        """,
-        "precios": f"""
-            CREATE TABLE IF NOT EXISTS precios (
-                {id_auto},
-                libro_id INTEGER NOT NULL,
-                moneda_id INTEGER NOT NULL,
-                valor DECIMAL(12, 2) NOT NULL,
-                fecha DATE NOT NULL,
-                PRIMARY KEY (id),
-                UNIQUE (libro_id, moneda_id, fecha),
-                CHECK (valor >= 0),
-                FOREIGN KEY (libro_id) REFERENCES libros (id),
-                FOREIGN KEY (moneda_id) REFERENCES monedas (id)
-            )
-        """,
-        "stock": """
-            CREATE TABLE IF NOT EXISTS stock (
-                libro_id INTEGER NOT NULL,
-                cantidad INTEGER NOT NULL DEFAULT 0,
-                stock_minimo INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY (libro_id),
-                CHECK (cantidad >= 0),
-                CHECK (stock_minimo >= 0),
-                FOREIGN KEY (libro_id) REFERENCES libros (id)
-            )
-        """,
-        "cotizaciones_dolar": """
-            CREATE TABLE IF NOT EXISTS cotizaciones_dolar (
-                tipo_id INTEGER NOT NULL,
-                fecha DATE NOT NULL,
-                compra DECIMAL(12, 2) NOT NULL,
-                venta DECIMAL(12, 2) NOT NULL,
-                PRIMARY KEY (tipo_id, fecha),
-                CHECK (compra > 0),
-                CHECK (venta >= compra),
-                FOREIGN KEY (tipo_id) REFERENCES tipos_cotizacion (id)
-            )
-        """,
-    }
+    return {modelo.NOMBRE: modelo.sentencia_creacion(dialecto)
+            for modelo in MODELOS}
 
 
 def _consultar_tablas(conexion: Connection) -> List[str]:
@@ -212,23 +306,26 @@ class EsquemaDB:
         En PostgreSQL la creación es atómica (el DDL forma parte de la
         transacción). En SQLite cada sentencia se confirma al ejecutarse;
         si la creación se interrumpe, volver a llamar completa lo que falte.
+        Como solo crea lo que falta, sirve también para agregar a una base
+        existente las tablas nuevas de un sprint.
         """
         with self.__conexion_db.transaccion() as conexion:
-            sentencias = sentencias_creacion(conexion.dialect.name)
-            for nombre in NOMBRES_TABLAS:
-                conexion.execute(text(sentencias[nombre]))
-            for indice in SENTENCIAS_INDICES:
-                conexion.execute(text(indice))
+            for modelo in MODELOS:
+                conexion.execute(text(
+                    modelo.sentencia_creacion(conexion.dialect.name)
+                ))
+                for indice in modelo.INDICES:
+                    conexion.execute(text(indice))
 
     def eliminar_tablas(self) -> None:
         """Elimina las tablas del sistema en orden inverso al de creación.
 
-        El nombre de cada tabla proviene de la constante NOMBRES_TABLAS,
-        nunca de un dato externo. Los índices se eliminan con su tabla.
+        El nombre de cada tabla proviene de su modelo, nunca de un dato
+        externo. Los índices se eliminan con su tabla.
         """
         with self.__conexion_db.transaccion() as conexion:
-            for nombre in reversed(NOMBRES_TABLAS):
-                conexion.execute(text(f"DROP TABLE IF EXISTS {nombre}"))
+            for modelo in reversed(MODELOS):
+                conexion.execute(text(modelo.sentencia_eliminacion()))
 
     def tablas_existentes(self) -> List[str]:
         """Consulta qué tablas existen en la base.
@@ -244,7 +341,7 @@ class EsquemaDB:
         """Indica si todas las tablas del sistema existen en la base.
 
         Returns:
-            bool: True si existen las 8 tablas, False en caso contrario.
+            bool: True si existen todas las tablas, False en caso contrario.
         """
         existentes: List[str] = self.tablas_existentes()
         return all(nombre in existentes for nombre in NOMBRES_TABLAS)

@@ -1,12 +1,30 @@
 """Entidades del dominio del sistema Book Manager.
 
-Libro, Genero, Editorial, Moneda, TipoCotizacion, Precio, Stock y
-CotizacionDolar.
+Libro, Genero, Editorial, Moneda, TipoCotizacion, Precio, Stock,
+CotizacionDolar y PrecioWeb.
 """
 
 import abc
 import datetime
+import unicodedata
 from typing import Any, Dict, Optional
+
+
+def normalizar_texto(texto: str) -> str:
+    """Pasa un texto a mayúsculas, sin acentos ni espacios repetidos.
+
+    Se usa para comparar títulos del catálogo con los de la web.
+
+    Args:
+        texto (str): Texto a normalizar.
+
+    Returns:
+        str: El texto normalizado (por ejemplo, 'El túnel' -> 'EL TUNEL').
+    """
+    sin_acentos: str = unicodedata.normalize("NFKD", texto or "")
+    letras: str = "".join(c for c in sin_acentos
+                          if not unicodedata.combining(c))
+    return " ".join(letras.upper().split())
 
 
 class EntidadBase(abc.ABC):
@@ -671,3 +689,191 @@ class CotizacionDolar:
         """Representación técnica de la cotización."""
         return (f"CotizacionDolar(tipo_id={self.tipo_id}, "
                 f"fecha={self.fecha.isoformat()!r}, venta={self.venta})")
+
+
+class PrecioWeb(EntidadBase):
+    """Precio y datos de un libro del catálogo publicados en la web.
+
+    Cada PrecioWeb es uno de los resultados de buscar un libro del catálogo
+    por título en el sitio de la competencia, en una fecha de extracción.
+    """
+
+    def __init__(self, libro: Libro, posicion: int, titulo: str,
+                 precio: float, url: str,
+                 fecha_extraccion: datetime.datetime, autor: str = "",
+                 isbn: str = "", precio_usd: Optional[float] = None,
+                 url_imagen: str = "", formas_pago: str = "",
+                 descripcion: str = "", id: Optional[int] = None) -> None:
+        """Crea un resultado de la búsqueda de un libro en la web."""
+        super().__init__(id)
+        self.libro = libro
+        self.posicion = posicion
+        self.titulo = titulo
+        self.precio = precio
+        self.url = url
+        self.fecha_extraccion = fecha_extraccion
+        self.autor = autor
+        self.isbn = isbn
+        self.precio_usd = precio_usd
+        self.url_imagen = url_imagen
+        self.formas_pago = formas_pago
+        self.descripcion = descripcion
+
+    @property
+    def libro(self) -> Libro:
+        """Libro del catálogo que se buscó."""
+        return self._libro
+
+    @libro.setter
+    def libro(self, valor: Libro) -> None:
+        if not isinstance(valor, Libro):
+            raise TypeError("El libro debe ser un objeto Libro.")
+        self._libro = valor
+
+    @property
+    def posicion(self) -> int:
+        """Posición del resultado en la búsqueda (1 = primero)."""
+        return self._posicion
+
+    @posicion.setter
+    def posicion(self, valor: int) -> None:
+        valor = int(valor)
+        if valor < 1:
+            raise ValueError("La posición debe ser 1 o mayor.")
+        self._posicion = valor
+
+    @property
+    def titulo(self) -> str:
+        """Título publicado en la web."""
+        return self._titulo
+
+    @titulo.setter
+    def titulo(self, valor: str) -> None:
+        self._titulo = self._validar_texto(valor, "titulo")
+
+    @property
+    def precio(self) -> float:
+        """Precio en pesos publicado en la web."""
+        return self._precio
+
+    @precio.setter
+    def precio(self, valor: float) -> None:
+        valor = float(valor)
+        if valor < 0:
+            raise ValueError("El precio web no puede ser negativo.")
+        self._precio = round(valor, 2)
+
+    @property
+    def url(self) -> str:
+        """Dirección de la página del producto."""
+        return self._url
+
+    @url.setter
+    def url(self, valor: str) -> None:
+        valor = self._validar_texto(valor, "url")
+        if not valor.startswith(("http://", "https://")):
+            raise ValueError("La URL debe empezar con http:// o https://.")
+        self._url = valor
+
+    @property
+    def fecha_extraccion(self) -> datetime.datetime:
+        """Fecha y hora en que se obtuvo el dato de la web."""
+        return self._fecha_extraccion
+
+    @fecha_extraccion.setter
+    def fecha_extraccion(self, valor: datetime.datetime) -> None:
+        if not isinstance(valor, datetime.datetime):
+            raise TypeError("La fecha de extracción debe ser un datetime.")
+        self._fecha_extraccion = valor.replace(microsecond=0)
+
+    @property
+    def autor(self) -> str:
+        """Autor publicado en la web (puede faltar)."""
+        return self._autor
+
+    @autor.setter
+    def autor(self, valor: str) -> None:
+        self._autor = (valor or "").strip()
+
+    @property
+    def isbn(self) -> str:
+        """ISBN publicado en la web (puede faltar)."""
+        return self._isbn
+
+    @isbn.setter
+    def isbn(self, valor: str) -> None:
+        self._isbn = (valor or "").replace("-", "").replace(" ", "").upper()
+
+    @property
+    def precio_usd(self) -> Optional[float]:
+        """Precio en dólares publicado en la web, si lo hay."""
+        return self._precio_usd
+
+    @precio_usd.setter
+    def precio_usd(self, valor: Optional[float]) -> None:
+        if valor is not None:
+            valor = round(float(valor), 2)
+            if valor < 0:
+                raise ValueError("El precio en dólares no puede ser negativo.")
+        self._precio_usd = valor
+
+    @property
+    def url_imagen(self) -> str:
+        """Dirección de la imagen de tapa."""
+        return self._url_imagen
+
+    @url_imagen.setter
+    def url_imagen(self, valor: str) -> None:
+        self._url_imagen = (valor or "").strip()
+
+    @property
+    def formas_pago(self) -> str:
+        """Formas de pago con su precio, separadas por ' | '."""
+        return self._formas_pago
+
+    @formas_pago.setter
+    def formas_pago(self, valor: str) -> None:
+        self._formas_pago = (valor or "").strip()
+
+    @property
+    def descripcion(self) -> str:
+        """Descripción detallada (sinopsis) del producto."""
+        return self._descripcion
+
+    @descripcion.setter
+    def descripcion(self, valor: str) -> None:
+        self._descripcion = (valor or "").strip()
+
+    @property
+    def es_mismo_libro(self) -> bool:
+        """Indica si el resultado corresponde al libro buscado.
+
+        Coincide si el ISBN es el mismo o, cuando la web no informa el ISBN
+        del catálogo, si el título normalizado es igual.
+        """
+        if self.isbn and self.isbn == self.libro.isbn:
+            return True
+        return normalizar_texto(self.titulo) == normalizar_texto(
+            self.libro.titulo)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Devuelve el resultado como diccionario (libro por ID)."""
+        return {"id": self.id, "libro_id": self.libro.id,
+                "posicion": self.posicion, "titulo": self.titulo,
+                "autor": self.autor, "isbn": self.isbn,
+                "precio": self.precio, "precio_usd": self.precio_usd,
+                "url": self.url, "url_imagen": self.url_imagen,
+                "formas_pago": self.formas_pago,
+                "descripcion": self.descripcion,
+                "fecha_extraccion": self.fecha_extraccion.isoformat(
+                    sep=" ", timespec="seconds")}
+
+    def __str__(self) -> str:
+        """Representación legible del resultado."""
+        return (f"{self.titulo} - $ {self.precio:,.2f} "
+                f"({self.fecha_extraccion:%d/%m/%Y %H:%M})")
+
+    def __repr__(self) -> str:
+        """Representación técnica del resultado."""
+        return (f"PrecioWeb(id={self.id}, libro_id={self.libro.id}, "
+                f"posicion={self.posicion}, precio={self.precio})")

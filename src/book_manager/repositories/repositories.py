@@ -20,7 +20,7 @@ from sqlalchemy.sql import text
 from book_manager.database.connection import ConexionDB
 from book_manager.entities.entities import (
     CotizacionDolar, Editorial, EntidadBase, Genero, Libro, Moneda, Precio,
-    Stock, TipoCotizacion)
+    PrecioWeb, Stock, TipoCotizacion)
 
 T = TypeVar('T', bound=EntidadBase)
 
@@ -227,6 +227,21 @@ def _a_fecha(valor: Any) -> datetime.date:
     return datetime.date.fromisoformat(str(valor))
 
 
+def _a_fecha_hora(valor: Any) -> datetime.datetime:
+    """Convierte una fecha y hora leída de la base en un objeto datetime.
+
+    Args:
+        valor (Any): Fecha y hora como texto ISO (SQLite) o como datetime
+            (PostgreSQL).
+
+    Returns:
+        datetime.datetime: La fecha y hora convertida.
+    """
+    if isinstance(valor, datetime.datetime):
+        return valor
+    return datetime.datetime.fromisoformat(str(valor))
+
+
 class RepositorioBaseSQL:
     """Base común de los repositorios: conexión y ejecución de SQL.
 
@@ -372,7 +387,8 @@ class RepositorioSQL(RepositorioBaseSQL, IRepositorio[T]):
             f"INSERT INTO {self.TABLA} ({', '.join(columnas)}) "
             f"VALUES ({', '.join(':' + campo for campo in columnas)})"
         )
-        parametros: Dict[str, Any] = {campo: datos[campo] for campo in columnas}
+        parametros: Dict[str, Any] = {
+            campo: datos[campo] for campo in columnas}
         if entidad.id is None:
             entidad.id = self._insertar_devolviendo_id(
                 sentencia + " RETURNING id", parametros, "crear el registro"
@@ -497,7 +513,8 @@ class RepositorioLibro(RepositorioSQL[Libro]):
 
     def _desde_fila(self, fila: Mapping[str, Any]) -> Libro:
         """Construye un Libro resolviendo su editorial y su género."""
-        editorial = self.__repo_editorial.leer_por_id(int(fila["editorial_id"]))
+        editorial = self.__repo_editorial.leer_por_id(
+            int(fila["editorial_id"]))
         genero = self.__repo_genero.leer_por_id(int(fila["genero_id"]))
         return Libro(fila["isbn"], fila["titulo"], fila["autor"], editorial,
                      genero, _a_fecha(fila["fecha_impresion"]),
@@ -699,3 +716,59 @@ class RepositorioCotizacionDolar(RepositorioBaseSQL,
             "eliminar la cotización"
         )
         return filas > 0
+
+
+class RepositorioPrecioWeb(RepositorioSQL[PrecioWeb]):
+    """Persistencia de los precios obtenidos de la web (scraper)."""
+
+    TABLA = "precios_web"
+    CAMPOS = ["id", "libro_id", "posicion", "titulo", "autor", "isbn",
+              "precio", "precio_usd", "url", "url_imagen", "formas_pago",
+              "descripcion", "fecha_extraccion"]
+
+    def __init__(self, conexion_db: ConexionDB,
+                 repo_libro: RepositorioLibro) -> None:
+        """Recibe la conexión y el repositorio de libros.
+
+        Args:
+            conexion_db (ConexionDB): Conexión a la base de datos.
+            repo_libro (RepositorioLibro): Para resolver el libro buscado.
+        """
+        super().__init__(conexion_db)
+        self.__repo_libro: RepositorioLibro = repo_libro
+
+    def _desde_fila(self, fila: Mapping[str, Any]) -> PrecioWeb:
+        """Construye un PrecioWeb resolviendo el libro buscado."""
+        return PrecioWeb(
+            self.__repo_libro.leer_por_id(int(fila["libro_id"])),
+            int(fila["posicion"]), fila["titulo"], float(fila["precio"]),
+            fila["url"], _a_fecha_hora(fila["fecha_extraccion"]),
+            fila["autor"], fila["isbn"],
+            None if fila["precio_usd"] is None else float(fila["precio_usd"]),
+            fila["url_imagen"], fila["formas_pago"], fila["descripcion"],
+            int(fila["id"]))
+
+    def leer_por_libro(self, libro_id: int) -> List[PrecioWeb]:
+        """Resultados de un libro, desde la extracción más reciente.
+
+        Args:
+            libro_id (int): Id del libro.
+
+        Returns:
+            List[PrecioWeb]: Resultados ordenados por fecha de extracción
+            (descendente) y, dentro de cada extracción, por posición.
+        """
+        return self._consultar("libro_id = :libro_id",
+                               {"libro_id": libro_id},
+                               orden="fecha_extraccion DESC, posicion")
+
+    def leer_ultima_extraccion(self) -> List[PrecioWeb]:
+        """Resultados de la extracción más reciente de cada libro.
+
+        Returns:
+            List[PrecioWeb]: Resultados ordenados por libro y posición.
+        """
+        return self._consultar(
+            "fecha_extraccion = (SELECT MAX(p.fecha_extraccion) "
+            "FROM precios_web p WHERE p.libro_id = precios_web.libro_id)",
+            orden="libro_id, posicion")
