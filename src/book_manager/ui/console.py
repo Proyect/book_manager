@@ -439,8 +439,7 @@ class Consola:
             print(f"Variación de la venta en el período: {variacion:.2f}%")
 
     def reporte_competencia(self) -> None:
-        """Compara precios propios con Cúspide."""
-        print("Consultando cuspide.com, puede demorar unos segundos...")
+        """Compara precios propios con los del último scraping de Cúspide."""
         filas = self._s.reportes.comparar_con_competencia(self._elegir_tipo())
         imprimir_tabla(
             ["Título", "Nuestro ARS", "Cúspide ARS", "Diferencia"],

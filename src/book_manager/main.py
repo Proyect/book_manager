@@ -17,10 +17,9 @@ from book_manager.repositories.repositories import (
     RepositorioLibro, RepositorioMoneda, RepositorioPrecio,
     RepositorioPrecioWeb, RepositorioStock, RepositorioTipoCotizacion)
 from book_manager.services.services import (
-    ServicioCompetencia, ServicioCotizacionDolar, ServicioEditorial,
-    ServicioGenero, ServicioLibro, ServicioMoneda, ServicioPrecio,
-    ServicioReportes, ServicioScraping, ServicioStock, ServicioTipoCotizacion,
-    cargar_url_api)
+    ServicioCotizacionDolar, ServicioEditorial, ServicioGenero, ServicioLibro,
+    ServicioMoneda, ServicioPrecio, ServicioReportes, ServicioScraping,
+    ServicioStock, ServicioTipoCotizacion, cargar_url_api)
 from book_manager.ui.console import Consola, Servicios
 
 
@@ -56,8 +55,8 @@ def crear_servicios(conexion_db: ConexionDB,
     cotizacion = ServicioCotizacionDolar(
         repo_cotizacion, repo_tipo, conexion_db,
         url_api if url_api is not None else cargar_url_api())
-    reportes = ServicioReportes(libro, precio, stock, cotizacion,
-                                ServicioCompetencia())
+    scraping = ServicioScraping(libro, repo_precio_web, conexion_db)
+    reportes = ServicioReportes(libro, precio, stock, cotizacion, scraping)
     return Servicios(
         genero=ServicioGenero(repo_genero, repo_libro),
         editorial=ServicioEditorial(repo_editorial, repo_libro),
@@ -65,7 +64,7 @@ def crear_servicios(conexion_db: ConexionDB,
         tipo_cotizacion=ServicioTipoCotizacion(repo_tipo, repo_cotizacion),
         libro=libro, precio=precio, stock=stock, cotizacion=cotizacion,
         reportes=reportes,
-        scraping=ServicioScraping(libro, repo_precio_web, conexion_db))
+        scraping=scraping)
 
 
 def main(import_default_data: bool = True,

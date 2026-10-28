@@ -15,17 +15,14 @@ import csv
 import datetime
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
-import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Generic, List, Optional, TypeVar
 
 import requests
-from bs4 import BeautifulSoup
 from dotenv import dotenv_values
 
 from book_manager.database.connection import ConexionDB
@@ -45,7 +42,7 @@ RUTA_EXPORTACION: Path = (
     Path(__file__).resolve().parent.parent / "data" / "exports"
     / "precios.csv"
 )
-URL_CUSPIDE = "https://cuspide.com/"
+RUTA_REPORTES: Path = Path(__file__).resolve().parent.parent / "reportes"
 TIMEOUT_SEGUNDOS = 10
 DIRECTORIO_SRC: Path = Path(__file__).resolve().parents[2]
 MODULO_ARANA: str = "book_manager.scraper.ejecutar"
@@ -741,11 +738,24 @@ class LineaBimonetaria:
 
 @dataclass
 class ComparacionPrecio:
-    """Fila del reporte de comparación con la competencia."""
+    """Comparación del precio interno de un libro con su precio web."""
 
     libro: Libro
     precio_propio_ars: Optional[float]
-    precio_competencia_ars: Optional[float]
+    precio_web: Optional[PrecioWeb] = None
+
+    @property
+    def precio_competencia_ars(self) -> Optional[float]:
+        """Precio en pesos publicado en la web (None si no se encontró)."""
+        return self.precio_web.precio if self.precio_web else None
+
+    @property
+    def diferencia(self) -> Optional[float]:
+        """Precio interno menos precio web, en pesos."""
+        if (self.precio_propio_ars is None
+                or self.precio_competencia_ars is None):
+            return None
+        return round(self.precio_propio_ars - self.precio_competencia_ars, 2)
 
     @property
     def diferencia_porcentual(self) -> Optional[float]:
@@ -755,89 +765,70 @@ class ComparacionPrecio:
         return round((self.precio_propio_ars / self.precio_competencia_ars
                       - 1) * 100, 2)
 
+    @property
+    def fecha_extraccion(self) -> Optional[datetime.datetime]:
+        """Fecha y hora en que se obtuvo el precio web."""
+        return self.precio_web.fecha_extraccion if self.precio_web else None
 
-class ServicioCompetencia:
-    """Consulta de precios en la web de la competencia (Cúspide)."""
+    def supera_umbral(self, umbral_porcentaje: float) -> bool:
+        """Indica si la diferencia porcentual alcanza el umbral.
 
-    @staticmethod
-    def _a_numero(texto: str) -> Optional[float]:
-        """Convierte un importe como '$ 25.999,00' a 25999.0."""
-        limpio = re.sub(r"[^\d,]", "", texto).replace(",", ".")
-        try:
-            return float(limpio)
-        except ValueError:
-            return None
+        La diferencia se compara en valor absoluto: alerta tanto si el
+        precio interno es más caro como si es más barato que el web.
 
-    @staticmethod
-    def _normalizar(texto: str) -> str:
-        """Pasa a mayúsculas y quita acentos para comparar títulos."""
-        sin_acentos = unicodedata.normalize("NFKD", texto)
-        return "".join(c for c in sin_acentos
-                       if not unicodedata.combining(c)).upper().strip()
+        Args:
+            umbral_porcentaje (float): Diferencia mínima, en %.
 
-    def _importe(self, contenedor: Any) -> Optional[float]:
-        """Precio de un producto (si está en oferta, el precio rebajado)."""
-        precio = contenedor.select_one(".price")
-        if precio is None:
-            return None
-        importe = (precio.select_one("ins .woocommerce-Price-amount")
-                   or precio.select_one(".woocommerce-Price-amount"))
-        return self._a_numero(importe.get_text()) if importe else None
-
-    def _buscar(self, termino: str) -> Optional[BeautifulSoup]:
-        """Ejecuta la búsqueda en el sitio y devuelve el HTML parseado."""
-        try:
-            respuesta = requests.get(
-                URL_CUSPIDE, params={"s": termino, "post_type": "product"},
-                headers=ENCABEZADOS_HTTP, timeout=TIMEOUT_SEGUNDOS)
-            respuesta.raise_for_status()
-        except requests.RequestException:
-            return None
-        return BeautifulSoup(respuesta.text, "html.parser")
-
-    def buscar_precio(self, libro: Libro) -> Optional[float]:
-        """Devuelve el menor precio en pesos del libro en Cúspide (o None).
-
-        Primero busca por ISBN; si no hay resultados, busca por título y
-        toma los productos cuyo título contiene el del libro.
+        Returns:
+            bool: True si hay precio web y la diferencia es igual o mayor
+            que el umbral.
         """
-        sopa = self._buscar(libro.isbn)
-        if sopa is None:
-            return None
-        resumen = sopa.select_one(".product .summary")
-        if resumen is not None:
-            return self._importe(resumen)
-        productos = sopa.select(".type-product")
-        if productos:
-            return self._importe(productos[0])
-        sopa = self._buscar(libro.titulo)
-        if sopa is None:
-            return None
-        buscado = self._normalizar(libro.titulo)
-        precios = []
-        for producto in sopa.select(".type-product"):
-            titulo = producto.select_one(".woocommerce-loop-product__title")
-            if titulo and buscado in self._normalizar(titulo.get_text()):
-                importe = self._importe(producto)
-                if importe:
-                    precios.append(importe)
-        return min(precios) if precios else None
+        diferencia = self.diferencia_porcentual
+        return diferencia is not None and abs(diferencia) >= umbral_porcentaje
+
+
+@dataclass
+class ResultadoScraping:
+    """Resultado de una ejecución del scraper con su archivo de alertas."""
+
+    resultados: List[PrecioWeb]
+    comparaciones: List[ComparacionPrecio]
+    alertas: List[ComparacionPrecio]
+    archivo_alertas: Path
 
 
 class ServicioReportes:
-    """Reportes: inventario, reposición, precios por moneda y competencia."""
+    """Reportes: inventario, reposición, precios por moneda y competencia.
+
+    Incluye la ejecución del scraper con la comparación de precios y la
+    generación del archivo de alertas.
+    """
 
     def __init__(self, servicio_libro: ServicioLibro,
                  servicio_precio: ServicioPrecio,
                  servicio_stock: ServicioStock,
                  servicio_cotizacion: ServicioCotizacionDolar,
-                 servicio_competencia: ServicioCompetencia) -> None:
-        """Recibe los servicios que se combinan en los reportes."""
+                 servicio_scraping: ServicioScraping,
+                 carpeta_reportes: Path = RUTA_REPORTES) -> None:
+        """Recibe los servicios que se combinan en los reportes.
+
+        Args:
+            servicio_libro (ServicioLibro): Catálogo de libros.
+            servicio_precio (ServicioPrecio): Precios internos.
+            servicio_stock (ServicioStock): Stock de cada libro.
+            servicio_cotizacion (ServicioCotizacionDolar): Cotizaciones
+                para convertir dólares a pesos.
+            servicio_scraping (ServicioScraping): Precios de la competencia
+                obtenidos de la web.
+            carpeta_reportes (Path): Carpeta donde se guardan las alertas y
+                los reportes generados.
+        """
         self._libros = servicio_libro
         self._precios = servicio_precio
         self._stock = servicio_stock
         self._cotizaciones = servicio_cotizacion
-        self._competencia = servicio_competencia
+        self._scraping = servicio_scraping
+        self._carpeta_reportes = Path(carpeta_reportes)
 
     def convertir_a_pesos(self, precio: Precio,
                           tipo: TipoCotizacion) -> Optional[float]:
@@ -958,7 +949,103 @@ class ServicioReportes:
 
     def comparar_con_competencia(self, tipo: TipoCotizacion
                                  ) -> List[ComparacionPrecio]:
-        """Compara el precio propio en pesos con el de Cúspide."""
-        return [ComparacionPrecio(libro, self.precio_en_pesos(libro, tipo),
-                                  self._competencia.buscar_precio(libro))
-                for libro in self._libros.listar()]
+        """Compara el precio interno en pesos con el último precio web.
+
+        Para cada libro se usa, de la extracción más reciente, el resultado
+        que le corresponde (mismo ISBN o mismo título).
+
+        Args:
+            tipo (TipoCotizacion): Tipo de cotización para convertir USD.
+
+        Returns:
+            List[ComparacionPrecio]: Una comparación por libro (sin precio
+            web si no se encontró el libro en la web).
+        """
+        por_libro: Dict[int, List[PrecioWeb]] = {}
+        for resultado in self._scraping.ultimos_resultados():
+            por_libro.setdefault(resultado.libro.id, []).append(resultado)
+        return [ComparacionPrecio(
+            libro, self.precio_en_pesos(libro, tipo),
+            self._scraping.mejor_coincidencia(por_libro.get(libro.id, [])))
+            for libro in self._libros.listar()]
+
+    def ejecutar_scraping(self, umbral_porcentaje: float,
+                          tipo: TipoCotizacion) -> ResultadoScraping:
+        """Ejecuta el scraper, compara los precios y genera las alertas.
+
+        Cada ejecución deja en la carpeta de reportes un archivo CSV con
+        los libros cuya diferencia entre el precio interno y el web es igual
+        o mayor que el umbral indicado por el usuario.
+
+        Args:
+            umbral_porcentaje (float): Diferencia de precio (en %, en valor
+                absoluto) a partir de la cual se genera una alerta.
+            tipo (TipoCotizacion): Tipo de cotización para convertir USD.
+
+        Returns:
+            ResultadoScraping: Resultados obtenidos, comparaciones, alertas
+            y ruta del archivo de alertas.
+
+        Raises:
+            ValueError: Si el umbral es negativo o no hay libros.
+            ConnectionError: Si el scraper no pudo ejecutarse.
+        """
+        umbral: float = float(umbral_porcentaje)
+        if umbral < 0:
+            raise ValueError("La diferencia de precio no puede ser negativa.")
+        resultados: List[PrecioWeb] = self._scraping.ejecutar_scraping()
+        comparaciones: List[ComparacionPrecio] = (
+            self.comparar_con_competencia(tipo))
+        alertas: List[ComparacionPrecio] = [
+            c for c in comparaciones if c.supera_umbral(umbral)]
+        archivo: Path = self.exportar_alertas_csv(alertas, umbral)
+        return ResultadoScraping(resultados, comparaciones, alertas, archivo)
+
+    def _ruta_reporte(self, prefijo: str, extension: str) -> Path:
+        """Ruta de un reporte nuevo con la fecha y hora en el nombre.
+
+        Args:
+            prefijo (str): Comienzo del nombre (ej. 'alertas_precios').
+            extension (str): Extensión sin punto (ej. 'csv').
+
+        Returns:
+            Path: Ruta dentro de la carpeta de reportes (que se crea).
+        """
+        self._carpeta_reportes.mkdir(parents=True, exist_ok=True)
+        marca: str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        return self._carpeta_reportes / f"{prefijo}_{marca}.{extension}"
+
+    def exportar_alertas_csv(self, alertas: List[ComparacionPrecio],
+                             umbral_porcentaje: float) -> Path:
+        """Escribe el archivo CSV de alertas de precios.
+
+        Args:
+            alertas (List[ComparacionPrecio]): Comparaciones que superan
+                el umbral.
+            umbral_porcentaje (float): Umbral usado, que se informa en cada
+                fila.
+
+        Returns:
+            Path: Ruta del archivo generado (se genera aunque no haya
+            alertas, con solo el encabezado).
+        """
+        ruta: Path = self._ruta_reporte("alertas_precios", "csv")
+        with open(ruta, "w", newline="", encoding="utf-8") as archivo:
+            escritor = csv.writer(archivo)
+            escritor.writerow([
+                "isbn", "libro", "precio_interno", "precio_web",
+                "diferencia", "diferencia_porcentual", "umbral_porcentual",
+                "alerta", "url", "fecha_extraccion"])
+            for alerta in alertas:
+                escritor.writerow([
+                    alerta.libro.isbn, alerta.libro.titulo,
+                    f"{alerta.precio_propio_ars:.2f}",
+                    f"{alerta.precio_competencia_ars:.2f}",
+                    f"{alerta.diferencia:.2f}",
+                    f"{alerta.diferencia_porcentual:.2f}",
+                    f"{umbral_porcentaje:.2f}",
+                    "Precio interno mayor al web" if alerta.diferencia > 0
+                    else "Precio interno menor al web",
+                    alerta.precio_web.url,
+                    alerta.fecha_extraccion.isoformat(sep=" ")])
+        return ruta

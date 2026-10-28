@@ -4,6 +4,12 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 3
 
+[Ejercicio 04]
+- `ServicioReportes.ejecutar_scraping(umbral_porcentaje, tipo)`: ejecuta el scraper, compara el precio interno con el precio web de cada libro y, en cada ejecución, genera en `reportes/` un archivo CSV de alertas (`alertas_precios_AAAAMMDD_HHMMSS.csv`) con los libros cuya diferencia, en valor absoluto, es igual o mayor que la ingresada por el usuario.
+- El CSV de alertas informa ISBN, libro, precio interno, precio web, diferencia en pesos y en %, umbral usado, tipo de alerta (precio interno mayor o menor al web), URL y fecha de extracción.
+- `ComparacionPrecio` con el `PrecioWeb` elegido, la diferencia en pesos, la fecha de extracción y `supera_umbral`; nueva clase `ResultadoScraping`.
+- `comparar_con_competencia` usa los precios obtenidos por el scraper (última extracción de cada libro); se elimina `ServicioCompetencia` (requests + BeautifulSoup) y BeautifulSoup de `requirements.txt`.
+
 [Ejercicio 03]
 - Proyecto Scrapy en `scraper/` (`scrapy.cfg` y paquete `cuspide` con `items`, `loaders`, `pipelines`, `settings` y `spiders`).
 - Araña `CuspideSpider`: busca cada libro del catálogo por título en cuspide.com, toma solo los 10 primeros resultados de cada búsqueda y de la página de cada producto obtiene el precio, la URL de la imagen, las formas de pago con su precio y la descripción detallada (además del título, autor, ISBN y precio en dólares).
