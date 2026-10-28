@@ -1,5 +1,9 @@
 #@title Escritura de console.py (parte 1)
-"""Interfaz de consola (CLI) que opera con los CRUD de cada entidad."""
+"""Interfaz de consola (CLI) que opera con los CRUD de cada entidad.
+
+Incluye el scraping de precios de la competencia con alertas, el reporte en
+Excel y el historial de auditoría.
+"""
 
 import datetime
 from dataclasses import dataclass
@@ -47,6 +51,19 @@ def imprimir_tabla(encabezados: Sequence[str],
     for fila in textos:
         print(" | ".join(c.ljust(a) for c, a in zip(fila, anchos)))
     print(f"({len(textos)} registros)")
+
+
+def recortar(texto: str, largo: int) -> str:
+    """Recorta un texto largo para mostrarlo en una tabla.
+
+    Args:
+        texto (str): Texto a mostrar.
+        largo (int): Largo máximo.
+
+    Returns:
+        str: El texto, terminado en '...' si se recortó.
+    """
+    return texto if len(texto) <= largo else texto[:largo - 3] + "..."
 
 
 def formatear_importe(valor: Optional[float]) -> str:
@@ -153,6 +170,9 @@ class Consola:
             "Stock": self.menu_stock,
             "Cotizaciones del dólar": self.menu_cotizaciones,
             "Reportes": self.menu_reportes,
+            "Ejecutar scraping": self.ejecutar_scraping,
+            "Generar reporte": self.generar_reporte,
+            "Ver historial de auditoría": self.ver_auditoria,
         })
         print("¡Hasta luego!")
 
@@ -489,3 +509,50 @@ class Consola:
             "Comparación de precios con Cúspide": self.reporte_competencia,
             "Lista de precios bimonetaria": self.reporte_bimonetario,
             "Exportar precios a CSV": self.reporte_exportar})
+
+    # ----- Scraping, reporte Excel y auditoría -----
+
+    def ejecutar_scraping(self) -> None:
+        """Busca los libros en Cúspide, compara precios y genera alertas."""
+        print("Se buscan en Cúspide los libros del catálogo (los 10 primeros "
+              "resultados de cada búsqueda).")
+        umbral = pedir_decimal(
+            "Diferencia de precio para generar alertas (%)")
+        tipo = self._elegir_tipo()
+        print("Ejecutando el scraper, puede demorar unos minutos...")
+        resultado = self._s.reportes.ejecutar_scraping(umbral, tipo)
+        print(f"Se obtuvieron {len(resultado.resultados)} resultados de la "
+              f"web.")
+        imprimir_tabla(
+            ["Libro", "Precio interno", "Precio web", "Diferencia", "Dif. %",
+             "Alerta"],
+            [(recortar(c.libro.titulo, 35),
+              formatear_importe(c.precio_propio_ars),
+              "no encontrado" if c.precio_competencia_ars is None
+              else formatear_importe(c.precio_competencia_ars),
+              formatear_importe(c.diferencia),
+              "-" if c.diferencia_porcentual is None
+              else f"{c.diferencia_porcentual:+.2f}%",
+              "SÍ" if c in resultado.alertas else "")
+             for c in resultado.comparaciones])
+        print(f"{len(resultado.alertas)} alertas con una diferencia de "
+              f"{umbral:.2f}% o más.")
+        print(f"Archivo de alertas: {resultado.archivo_alertas}")
+
+    def generar_reporte(self) -> None:
+        """Genera el reporte en Excel de precios internos y web."""
+        tipo = self._elegir_tipo()
+        if not self._s.scraping.ultimos_resultados():
+            print("Aviso: todavía no se ejecutó el scraping; el reporte "
+                  "no tendrá precios web.")
+        ruta = self._s.reportes.generar_reporte_excel(tipo)
+        print(f"Reporte generado: {ruta}")
+
+    def ver_auditoria(self) -> None:
+        """Muestra los últimos registros de auditoría."""
+        cantidad = pedir_entero("Cantidad de registros a mostrar", 20)
+        imprimir_tabla(
+            ["ID", "Fecha", "Acción", "Detalles"],
+            [(a.id, f"{a.fecha:%d/%m/%Y %H:%M:%S}", a.accion,
+              recortar(a.detalles, 70))
+             for a in self._s.auditoria.historial(cantidad)])

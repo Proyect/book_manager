@@ -4,6 +4,12 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 3
 
+[Ejercicio 07]
+- Opción **Ejecutar scraping** en el menú principal: pide la diferencia de precio (%) para las alertas y el tipo de cotización, ejecuta el scraper, muestra la comparación de cada libro (precio interno, precio web, diferencia y alerta) y la ruta del archivo CSV de alertas.
+- Opción **Generar reporte**: genera el reporte en Excel de precios internos y web y muestra la ruta del archivo (avisa si todavía no se ejecutó el scraping).
+- Opción **Ver historial de auditoría**: muestra los últimos registros (ID, fecha, acción y detalles).
+- La comparación de precios con Cúspide del menú de reportes usa los precios del último scraping.
+
 [Ejercicio 06]
 - Decorador `auditar(accion)` en `services.py`: registra cada operación de los servicios en la tabla de auditoría con la acción, la fecha y los detalles (argumentos y resultado); si la operación falla registra la acción con `(ERROR)` y el mensaje, y propaga la excepción.
 - Cuando una operación auditada llama a otra (por ejemplo, el alta de un libro valida con el listado), solo se registra la operación externa.
