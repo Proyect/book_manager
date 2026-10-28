@@ -1,7 +1,7 @@
 """Entidades del dominio del sistema Book Manager.
 
 Libro, Genero, Editorial, Moneda, TipoCotizacion, Precio, Stock,
-CotizacionDolar y PrecioWeb.
+CotizacionDolar, PrecioWeb y Auditoria.
 """
 
 import abc
@@ -877,3 +877,73 @@ class PrecioWeb(EntidadBase):
         """Representación técnica del resultado."""
         return (f"PrecioWeb(id={self.id}, libro_id={self.libro.id}, "
                 f"posicion={self.posicion}, precio={self.precio})")
+
+
+class Auditoria(EntidadBase):
+    """Registro de una operación del sistema (tabla de auditoría)."""
+
+    LARGO_MAXIMO_ACCION: int = 100
+
+    def __init__(self, accion: str, detalles: str = "",
+                 fecha: Optional[datetime.datetime] = None,
+                 id: Optional[int] = None) -> None:
+        """Crea el registro de una operación.
+
+        Args:
+            accion (str): Operación realizada (ej. 'ALTA Libro').
+            detalles (str): Datos de la operación y su resultado.
+            fecha (Optional[datetime.datetime]): Fecha y hora; por defecto,
+                el momento actual.
+            id (Optional[int]): Id asignado por la base.
+        """
+        super().__init__(id)
+        self.accion = accion
+        self.detalles = detalles
+        self.fecha = fecha or datetime.datetime.now()
+
+    @property
+    def accion(self) -> str:
+        """Operación realizada."""
+        return self._accion
+
+    @accion.setter
+    def accion(self, valor: str) -> None:
+        valor = self._validar_texto(valor, "accion")
+        if len(valor) > self.LARGO_MAXIMO_ACCION:
+            raise ValueError(f"La acción no puede superar los "
+                             f"{self.LARGO_MAXIMO_ACCION} caracteres.")
+        self._accion = valor
+
+    @property
+    def detalles(self) -> str:
+        """Datos de la operación y su resultado."""
+        return self._detalles
+
+    @detalles.setter
+    def detalles(self, valor: str) -> None:
+        self._detalles = (valor or "").strip()
+
+    @property
+    def fecha(self) -> datetime.datetime:
+        """Fecha y hora de la operación."""
+        return self._fecha
+
+    @fecha.setter
+    def fecha(self, valor: datetime.datetime) -> None:
+        if not isinstance(valor, datetime.datetime):
+            raise TypeError("La fecha de la auditoría debe ser un datetime.")
+        self._fecha = valor.replace(microsecond=0)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Devuelve el registro como diccionario."""
+        return {"id": self.id, "accion": self.accion,
+                "fecha": self.fecha.isoformat(sep=" ", timespec="seconds"),
+                "detalles": self.detalles}
+
+    def __str__(self) -> str:
+        """Representación legible del registro."""
+        return f"[{self.fecha:%d/%m/%Y %H:%M:%S}] {self.accion}"
+
+    def __repr__(self) -> str:
+        """Representación técnica del registro."""
+        return f"Auditoria(id={self.id}, accion={self.accion!r})"

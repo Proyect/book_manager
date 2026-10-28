@@ -19,8 +19,8 @@ from sqlalchemy.sql import text
 
 from book_manager.database.connection import ConexionDB
 from book_manager.entities.entities import (
-    CotizacionDolar, Editorial, EntidadBase, Genero, Libro, Moneda, Precio,
-    PrecioWeb, Stock, TipoCotizacion)
+    Auditoria, CotizacionDolar, Editorial, EntidadBase, Genero, Libro, Moneda,
+    Precio, PrecioWeb, Stock, TipoCotizacion)
 
 T = TypeVar('T', bound=EntidadBase)
 
@@ -772,3 +772,30 @@ class RepositorioPrecioWeb(RepositorioSQL[PrecioWeb]):
             "fecha_extraccion = (SELECT MAX(p.fecha_extraccion) "
             "FROM precios_web p WHERE p.libro_id = precios_web.libro_id)",
             orden="libro_id, posicion")
+
+
+class RepositorioAuditoria(RepositorioSQL[Auditoria]):
+    """Persistencia de los registros de auditoría."""
+
+    TABLA = "auditoria"
+    CAMPOS = ["id", "accion", "fecha", "detalles"]
+
+    def _desde_fila(self, fila: Mapping[str, Any]) -> Auditoria:
+        """Construye una Auditoria desde una fila."""
+        return Auditoria(fila["accion"], fila["detalles"],
+                         _a_fecha_hora(fila["fecha"]), int(fila["id"]))
+
+    def leer_ultimas(self, cantidad: int) -> List[Auditoria]:
+        """Devuelve los registros más recientes.
+
+        Args:
+            cantidad (int): Cantidad máxima de registros.
+
+        Returns:
+            List[Auditoria]: Registros del más reciente al más antiguo.
+        """
+        filas = self._seleccionar(
+            f"SELECT {', '.join(self.CAMPOS)} FROM {self.TABLA} "
+            f"ORDER BY fecha DESC, id DESC LIMIT :cantidad",
+            {"cantidad": int(cantidad)})
+        return [self._desde_fila(fila) for fila in filas]

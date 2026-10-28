@@ -233,12 +233,28 @@ class PrecioWebModel(ModeloTabla):
                "ON precios_web (libro_id, fecha_extraccion)",)
 
 
+class AuditoriaModel(ModeloTabla):
+    """Tabla auditoria: registro de cada operación del sistema."""
+
+    NOMBRE = "auditoria"
+    COLUMNAS = """
+        {id},
+        accion VARCHAR(100) NOT NULL,
+        fecha TIMESTAMP NOT NULL,
+        detalles TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (id),
+        CHECK (length(trim(accion)) > 0)
+    """
+    INDICES = ("CREATE INDEX IF NOT EXISTS ix_auditoria_fecha "
+               "ON auditoria (fecha)",)
+
+
 # Orden de creación: primero las tablas sin dependencias, después las que
 # las referencian. Las tablas se eliminan en el orden inverso.
 MODELOS: List[Type[ModeloTabla]] = [
     GeneroModel, EditorialModel, MonedaModel, TipoCotizacionModel,
     LibroModel, PrecioModel, StockModel, CotizacionDolarModel,
-    PrecioWebModel,
+    PrecioWebModel, AuditoriaModel,
 ]
 NOMBRES_TABLAS: List[str] = [modelo.NOMBRE for modelo in MODELOS]
 
