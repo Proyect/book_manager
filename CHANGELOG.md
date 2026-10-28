@@ -4,6 +4,17 @@ Los cambios se registran del más reciente al más antiguo.
 
 ## Sprint 3
 
+[Ejercicio 03]
+- Proyecto Scrapy en `scraper/` (`scrapy.cfg` y paquete `cuspide` con `items`, `loaders`, `pipelines`, `settings` y `spiders`).
+- Araña `CuspideSpider`: busca cada libro del catálogo por título en cuspide.com, toma solo los 10 primeros resultados de cada búsqueda y de la página de cada producto obtiene el precio, la URL de la imagen, las formas de pago con su precio y la descripción detallada (además del título, autor, ISBN y precio en dólares).
+- `LibroWebItem` y `LibroWebLoader` (ItemLoader con procesadores de entrada y salida: limpieza de textos, conversión de importes con formato argentino, ISBN y unión de formas de pago y descripción).
+- Pipelines: `ValidacionPipeline` (descarta resultados sin datos obligatorios), `DuplicadosPipeline` (descarta productos repetidos) y `ExportacionPipeline` (escribe los resultados en JSON Lines).
+- Módulo `scraper/ejecutar.py`: ejecuta la araña con `CrawlerProcess` en un proceso propio (el reactor de Twisted solo puede iniciarse una vez por proceso), con respeto del robots.txt y demora entre consultas.
+- Entidad `PrecioWeb`, tabla `precios_web` (borrado en cascada con el libro) y `RepositorioPrecioWeb` (resultados por libro y última extracción de cada libro).
+- `ServicioScraping`: ejecuta la araña, guarda los resultados en la base en una sola transacción y elige el resultado que corresponde a cada libro (mismo ISBN o mismo título).
+- `models.py` reorganizado en una clase por tabla (`GeneroModel`, `EditorialModel`, `MonedaModel`, `TipoCotizacionModel`, `LibroModel`, `PrecioModel`, `StockModel`, `CotizacionDolarModel` y `PrecioWebModel`); `EsquemaDB` crea las tablas a partir de los modelos.
+- `main` crea las tablas nuevas en una base existente sin perder sus datos; `hay_datos` verifica la tabla de libros.
+
 [Ejercicio 02]
 - Función `cargar_datos_desde_sql(conexion_db, ruta_sql)` en `preload_data.py`: carga en la base los datos de un archivo `.sql` o de todos los archivos de migración de una carpeta (en orden de dependencias), en una sola transacción, y ajusta las secuencias de ids en PostgreSQL.
 - `importar_datos` recrea el esquema y carga los datos desde los `.sql` de `migrations/sql`; los regenera desde los CSV solo si se pide (`regenerar_sql=True`) o si no existen.

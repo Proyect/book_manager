@@ -21,8 +21,8 @@ from book_manager.migrations.migrations import (
 from book_manager.models.models import EsquemaDB
 from book_manager.repositories.repositories import (
     RepositorioCotizacionDolar, RepositorioEditorial, RepositorioGenero,
-    RepositorioLibro, RepositorioMoneda, RepositorioPrecio, RepositorioStock,
-    RepositorioTipoCotizacion)
+    RepositorioLibro, RepositorioMoneda, RepositorioPrecio,
+    RepositorioPrecioWeb, RepositorioStock, RepositorioTipoCotizacion)
 
 DIRECTORIO_MIGRACIONES: Path = (
     Path(__file__).resolve().parent.parent / "migrations"
@@ -54,6 +54,7 @@ def _validar_con_entidades(conexion_db: ConexionDB) -> None:
         RepositorioPrecio(conexion_db, repo_libro, repo_moneda),
         RepositorioStock(conexion_db, repo_libro),
         RepositorioCotizacionDolar(conexion_db, repo_tipo),
+        RepositorioPrecioWeb(conexion_db, repo_libro),
     ]
     for repositorio in repositorios:
         repositorio.leer_todos()
@@ -158,15 +159,18 @@ def importar_datos(conexion_db: ConexionDB,
 
 
 def hay_datos(conexion_db: ConexionDB) -> bool:
-    """Indica si la base tiene el esquema creado y libros cargados.
+    """Indica si la base tiene la tabla de libros con datos cargados.
+
+    Las tablas nuevas de un sprint (que una base existente todavía no
+    tiene) se crean con EsquemaDB.crear_tablas, sin perder los datos.
 
     Args:
         conexion_db (ConexionDB): Conexión a la base de datos.
 
     Returns:
-        bool: True si existen todas las tablas y hay al menos un libro.
+        bool: True si existe la tabla libros y tiene al menos un libro.
     """
-    if not EsquemaDB(conexion_db).esta_creado():
+    if "libros" not in EsquemaDB(conexion_db).tablas_existentes():
         return False
     with conexion_db.transaccion() as conexion:
         cantidad: int = conexion.execute(

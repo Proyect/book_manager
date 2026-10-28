@@ -2,22 +2,25 @@
 """Punto de entrada del sistema Book Manager.
 
 Arma la conexión a la base de datos, los repositorios y los servicios, carga
-los datos iniciales si hace falta e inicia la consola. La URL de la API de
-cotizaciones se lee del archivo .env.
+los datos iniciales si hace falta (o crea las tablas nuevas en una base
+existente) e inicia la consola. La URL de la API de cotizaciones se lee del
+archivo .env.
 """
 
 from typing import Optional
 
 from book_manager.database.connection import ConexionDB
+from book_manager.models.models import EsquemaDB
 from book_manager.preload_data.preload_data import hay_datos, importar_datos
 from book_manager.repositories.repositories import (
     RepositorioCotizacionDolar, RepositorioEditorial, RepositorioGenero,
-    RepositorioLibro, RepositorioMoneda, RepositorioPrecio, RepositorioStock,
-    RepositorioTipoCotizacion)
+    RepositorioLibro, RepositorioMoneda, RepositorioPrecio,
+    RepositorioPrecioWeb, RepositorioStock, RepositorioTipoCotizacion)
 from book_manager.services.services import (
     ServicioCompetencia, ServicioCotizacionDolar, ServicioEditorial,
     ServicioGenero, ServicioLibro, ServicioMoneda, ServicioPrecio,
-    ServicioReportes, ServicioStock, ServicioTipoCotizacion, cargar_url_api)
+    ServicioReportes, ServicioScraping, ServicioStock, ServicioTipoCotizacion,
+    cargar_url_api)
 from book_manager.ui.console import Consola, Servicios
 
 
@@ -45,6 +48,7 @@ def crear_servicios(conexion_db: ConexionDB,
     repo_precio = RepositorioPrecio(conexion_db, repo_libro, repo_moneda)
     repo_stock = RepositorioStock(conexion_db, repo_libro)
     repo_cotizacion = RepositorioCotizacionDolar(conexion_db, repo_tipo)
+    repo_precio_web = RepositorioPrecioWeb(conexion_db, repo_libro)
 
     libro = ServicioLibro(repo_libro, repo_precio, repo_stock, conexion_db)
     precio = ServicioPrecio(repo_precio)
@@ -60,7 +64,8 @@ def crear_servicios(conexion_db: ConexionDB,
         moneda=ServicioMoneda(repo_moneda, repo_precio),
         tipo_cotizacion=ServicioTipoCotizacion(repo_tipo, repo_cotizacion),
         libro=libro, precio=precio, stock=stock, cotizacion=cotizacion,
-        reportes=reportes)
+        reportes=reportes,
+        scraping=ServicioScraping(libro, repo_precio_web, conexion_db))
 
 
 def main(import_default_data: bool = True,
@@ -84,6 +89,8 @@ def main(import_default_data: bool = True,
             print("Datos iniciales importados en la base:")
             for tabla, cantidad in resumen.items():
                 print(f"  {tabla}: {cantidad} registros")
+        else:
+            EsquemaDB(conexion).crear_tablas()
         Consola(crear_servicios(conexion)).ejecutar()
     finally:
         if conexion_propia:

@@ -5,13 +5,20 @@ Los servicios validan las reglas del negocio (unicidad, integridad
 referencial, stock suficiente, conversión de monedas) y delegan la
 persistencia en los repositorios. Las operaciones que modifican varias
 tablas se ejecutan en una única transacción de la base de datos. La URL de
-la API de cotizaciones se lee del archivo .env con python-dotenv.
+la API de cotizaciones se lee del archivo .env con python-dotenv. El
+scraping de precios de la competencia se ejecuta con la araña de Scrapy del
+paquete scraper.
 """
 
 import copy
 import csv
 import datetime
+import json
+import os
 import re
+import subprocess
+import sys
+import tempfile
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,11 +31,12 @@ from dotenv import dotenv_values
 from book_manager.database.connection import ConexionDB
 from book_manager.entities.entities import (
     CotizacionDolar, Editorial, EntidadBase, Genero, Libro, Moneda, Precio,
-    Stock, TipoCotizacion)
+    PrecioWeb, Stock, TipoCotizacion)
 from book_manager.repositories.repositories import (
     RepositorioCotizacionDolar, RepositorioEditorial, RepositorioGenero,
-    RepositorioLibro, RepositorioMoneda, RepositorioPrecio, RepositorioSQL,
-    RepositorioStock, RepositorioTipoCotizacion)
+    RepositorioLibro, RepositorioMoneda, RepositorioPrecio,
+    RepositorioPrecioWeb, RepositorioSQL, RepositorioStock,
+    RepositorioTipoCotizacion)
 
 T = TypeVar('T', bound=EntidadBase)
 
@@ -39,6 +47,9 @@ RUTA_EXPORTACION: Path = (
 )
 URL_CUSPIDE = "https://cuspide.com/"
 TIMEOUT_SEGUNDOS = 10
+DIRECTORIO_SRC: Path = Path(__file__).resolve().parents[2]
+MODULO_ARANA: str = "book_manager.scraper.ejecutar"
+TIMEOUT_SCRAPING_SEGUNDOS = 900
 ENCABEZADOS_HTTP = {"User-Agent": "Mozilla/5.0 (BookManager UGR)"}
 
 # Relación entre el campo "casa" de dolarapi.com y el nombre del tipo.
@@ -548,6 +559,159 @@ class ServicioCotizacionDolar:
                 ) from error
         with self._conexion_db.transaccion():
             return [self.registrar(cotizacion) for cotizacion in cotizaciones]
+
+
+class ServicioScraping:
+    """Scraping de precios de la competencia y consulta de los resultados.
+
+    Ejecuta la araña CuspideSpider (Scrapy) en un proceso propio, porque el
+    motor de Scrapy solo puede iniciarse una vez por proceso, y guarda los
+    resultados en la tabla precios_web en una sola transacción.
+    """
+
+    def __init__(self, servicio_libro: ServicioLibro,
+                 repo: RepositorioPrecioWeb, conexion_db: ConexionDB,
+                 timeout_segundos: int = TIMEOUT_SCRAPING_SEGUNDOS) -> None:
+        """Recibe el servicio de libros, el repositorio y la conexión.
+
+        Args:
+            servicio_libro (ServicioLibro): Para obtener el catálogo.
+            repo (RepositorioPrecioWeb): Repositorio de precios web.
+            conexion_db (ConexionDB): Conexión para guardar los resultados
+                de una ejecución en una sola transacción.
+            timeout_segundos (int): Tiempo máximo de una ejecución.
+        """
+        self._libros = servicio_libro
+        self._repo = repo
+        self._conexion_db = conexion_db
+        self._timeout = timeout_segundos
+
+    def ejecutar_scraping(self, libros: Optional[List[Libro]] = None
+                          ) -> List[PrecioWeb]:
+        """Busca los libros en la web y guarda los resultados en la base.
+
+        Args:
+            libros (Optional[List[Libro]]): Libros a buscar; si es None,
+                todo el catálogo.
+
+        Returns:
+            List[PrecioWeb]: Resultados guardados.
+
+        Raises:
+            ValueError: Si no hay libros para buscar.
+            ConnectionError: Si la araña no pudo ejecutarse.
+        """
+        libros = self._libros.listar() if libros is None else libros
+        if not libros:
+            raise ValueError("No hay libros en el catálogo para buscar.")
+        with tempfile.TemporaryDirectory() as carpeta:
+            entrada: Path = Path(carpeta) / "libros.json"
+            salida: Path = Path(carpeta) / "resultados.jsonl"
+            with open(entrada, "w", encoding="utf-8") as archivo:
+                json.dump([{"id": libro.id, "titulo": libro.titulo}
+                           for libro in libros], archivo, ensure_ascii=False)
+            self._ejecutar_arana(entrada, salida)
+            datos: List[Dict[str, Any]] = self._leer_resultados(salida)
+        por_id: Dict[int, Libro] = {libro.id: libro for libro in libros}
+        ahora: datetime.datetime = datetime.datetime.now()
+        resultados: List[PrecioWeb] = [
+            self._a_precio_web(dato, por_id[dato["libro_id"]], ahora)
+            for dato in datos if dato.get("libro_id") in por_id]
+        with self._conexion_db.transaccion():
+            return [self._repo.crear(resultado) for resultado in resultados]
+
+    def _ejecutar_arana(self, entrada: Path, salida: Path) -> None:
+        """Ejecuta la araña en un proceso nuevo y espera a que termine.
+
+        Args:
+            entrada (Path): Archivo JSON con los libros a buscar.
+            salida (Path): Archivo JSON Lines para los resultados.
+
+        Raises:
+            ConnectionError: Si el proceso termina con error o demora más
+                que el tiempo máximo.
+        """
+        entorno: Dict[str, str] = dict(os.environ)
+        entorno["PYTHONPATH"] = os.pathsep.join(
+            [str(DIRECTORIO_SRC), entorno.get("PYTHONPATH", "")]).strip(
+                os.pathsep)
+        try:
+            proceso = subprocess.run(
+                [sys.executable, "-m", MODULO_ARANA, str(entrada),
+                 str(salida)],
+                env=entorno, capture_output=True, text=True,
+                timeout=self._timeout, check=False)
+        except subprocess.TimeoutExpired as error:
+            raise ConnectionError(
+                "El scraping superó el tiempo máximo de ejecución."
+            ) from error
+        if proceso.returncode != 0 or not salida.exists():
+            detalle: str = "\n".join(proceso.stderr.strip().splitlines()[-5:])
+            raise ConnectionError(f"No se pudo ejecutar el scraper: {detalle}")
+
+    @staticmethod
+    def _leer_resultados(salida: Path) -> List[Dict[str, Any]]:
+        """Lee el archivo JSON Lines que dejó la araña.
+
+        Args:
+            salida (Path): Archivo de resultados.
+
+        Returns:
+            List[Dict[str, Any]]: Un diccionario por resultado.
+        """
+        with open(salida, encoding="utf-8") as archivo:
+            return [json.loads(linea) for linea in archivo if linea.strip()]
+
+    @staticmethod
+    def _a_precio_web(dato: Dict[str, Any], libro: Libro,
+                      ahora: datetime.datetime) -> PrecioWeb:
+        """Convierte un resultado de la araña en un PrecioWeb.
+
+        Args:
+            dato (Dict[str, Any]): Resultado leído del archivo.
+            libro (Libro): Libro del catálogo que se buscó.
+            ahora (datetime.datetime): Fecha a usar si el resultado no trae
+                la fecha de extracción.
+
+        Returns:
+            PrecioWeb: El resultado como entidad (sin guardar).
+        """
+        fecha: datetime.datetime = (
+            datetime.datetime.fromisoformat(dato["fecha_extraccion"])
+            if dato.get("fecha_extraccion") else ahora)
+        return PrecioWeb(
+            libro, dato["posicion"], dato["titulo"], dato["precio"],
+            dato["url"], fecha, dato.get("autor", ""), dato.get("isbn", ""),
+            dato.get("precio_usd"), dato.get("url_imagen", ""),
+            dato.get("formas_pago", ""), dato.get("descripcion", ""))
+
+    def ultimos_resultados(self) -> List[PrecioWeb]:
+        """Resultados de la extracción más reciente de cada libro."""
+        return self._repo.leer_ultima_extraccion()
+
+    def resultados_de(self, libro_id: int) -> List[PrecioWeb]:
+        """Todos los resultados obtenidos para un libro."""
+        return self._repo.leer_por_libro(libro_id)
+
+    @staticmethod
+    def mejor_coincidencia(resultados: List[PrecioWeb]
+                           ) -> Optional[PrecioWeb]:
+        """Elige, entre los resultados de un libro, el que le corresponde.
+
+        Primero el que tiene el mismo ISBN; si no hay, el primero con el
+        mismo título.
+
+        Args:
+            resultados (List[PrecioWeb]): Resultados de un mismo libro.
+
+        Returns:
+            Optional[PrecioWeb]: El resultado elegido, o None si ninguno
+            corresponde al libro.
+        """
+        for resultado in resultados:
+            if resultado.isbn and resultado.isbn == resultado.libro.isbn:
+                return resultado
+        return next((r for r in resultados if r.es_mismo_libro), None)
 
 
 @dataclass

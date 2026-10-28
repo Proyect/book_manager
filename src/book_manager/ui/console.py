@@ -12,7 +12,8 @@ from book_manager.entities.entities import (
 from book_manager.services.services import (
     RUTA_EXPORTACION, ServicioCotizacionDolar, ServicioCRUD,
     ServicioEditorial, ServicioGenero, ServicioLibro, ServicioMoneda,
-    ServicioPrecio, ServicioReportes, ServicioStock, ServicioTipoCotizacion)
+    ServicioPrecio, ServicioReportes, ServicioScraping, ServicioStock,
+    ServicioTipoCotizacion)
 
 E = TypeVar('E')
 
@@ -30,6 +31,7 @@ class Servicios:
     stock: ServicioStock
     cotizacion: ServicioCotizacionDolar
     reportes: ServicioReportes
+    scraping: ServicioScraping
 
 
 def imprimir_tabla(encabezados: Sequence[str],
