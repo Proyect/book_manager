@@ -2,6 +2,14 @@
 
 Los cambios se registran del más reciente al más antiguo.
 
+## Sprint 3
+
+[Ejercicio 01]
+- Creación de la rama `Sprint_3` a partir de `Sprint_2`.
+- Nuevas carpetas `scraper` (proyecto Scrapy) y `reportes` (alertas CSV y reportes Excel generados, excluidos del repositorio en `.gitignore`).
+- `requirements.txt` con Scrapy (scraper) y openpyxl (reportes Excel).
+- README actualizado al Sprint 3 (objetivo, introducción y contexto, entidades y estructura).
+
 ## Sprint 2
 
 [Ejercicio 08]

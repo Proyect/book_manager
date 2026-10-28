@@ -1,3 +1,5 @@
 __pycache__/
 src/book_manager/data/
 *.db
+src/book_manager/reportes/*
+!src/book_manager/reportes/.gitkeep

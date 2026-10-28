@@ -3,3 +3,5 @@ beautifulsoup4
 SQLAlchemy
 python-dotenv
 psycopg[binary]
+scrapy
+openpyxl
